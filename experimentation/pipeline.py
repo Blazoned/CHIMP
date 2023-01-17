@@ -66,7 +66,7 @@ class BasicPipeline:
                               .validate()
 
         model_publisher = self._model_publisher_factory(config=self._config,
-                                                        models=model_generator.models, data=pd.DataFrame())\
+                                                        models=model_generator.models, data=data_processor.features)\
                               .test()\
                               .publish()
 

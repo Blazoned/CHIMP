@@ -176,7 +176,7 @@ class DefaultModelGenerator(ModelGenerator):
 
         input_sig = [tf.TensorSpec([None, 48, 48, 1], tf.float32)]
         onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
-        onnx.save(onnx_model, 'onnx_models/model.onnx')
+        onnx.save(onnx_model, 'onnx-models/model.onnx')
 
         log_param("optimiser_type", "Adam")
         log_param("learning_rate", learning_rate)

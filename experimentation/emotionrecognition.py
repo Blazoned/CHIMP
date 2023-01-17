@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import heapq
 from typing import Union
 
 from os import path, listdir
@@ -11,11 +13,12 @@ import numpy as np
 from numpy.random import RandomState
 import pandas as pd
 
-from talos import Scan, Evaluate
+from talos import Scan
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D
 from tensorflow.keras.layers import BatchNormalization, Activation, MaxPooling2D
+from tensorflow.keras.models import model_from_json
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
@@ -182,9 +185,11 @@ class EmotionModelGenerator(ModelGeneratorABC):
                             validation_data=(self.validation_data['image_data'], self.validation_data['class_']),
                             callbacks=callbacks, )
 
-        input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
-        onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
-        onnx.save(onnx_model, 'onnx_models/model.onnx')
+        # NOTE: no longer saving each model, only saving published models.
+        #     input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1],
+        #                                tf.float32)]
+        #     onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
+        #     onnx.save(onnx_model, 'onnx-models/model.onnx')
 
         if self._config['use_talos_automl']:
             return history, model
@@ -245,16 +250,61 @@ class EmotionModelPublisher(ModelPublisherABC):
         _, self.test_data = _split_data(self._data, self._config['train_test_fraction'],
                                         random_state=RandomState(self._config['random_seed']))
 
-        # TODO: Test (n-)best model(s)
-        evaluator = Evaluate(self.models[0])
-        result = evaluator.evaluate(x=self.test_data['image_data'], y=self.test_data['class_'],
-                                    task='multi_class', metric=self._config['best_model_test_metric'])
+        # Get best n models according to training and validation results
+        talos_scan = self.models[0]
+        scan_results = zip(talos_scan.saved_models, talos_scan.saved_weights, talos_scan.data.to_dict('records'))
 
-        pass
+        n_value = self._config['best_model_test_count']
+        evaluation_metric = self._config['best_model_test_metric']
+
+        best_n_function = heapq.nlargest if evaluation_metric != 'loss' and evaluation_metric != 'val_loss' \
+            else heapq.nsmallest
+        holdout_best_models = best_n_function(n_value, scan_results,
+                                              key=lambda model_results: model_results[2][evaluation_metric])
+
+        # Evaluate the n best models according to the scan object
+        models = []
+
+        for model_json, weights, data in holdout_best_models:
+            model = model_from_json(model_json)
+            model.set_weights(weights)
+
+            learning_rate = data['learning_rate']
+            optimiser = Adam(learning_rate=learning_rate) if data['optimiser'].lower() == 'adam' else \
+                SGD(learning_rate=learning_rate) if data['optimiser'].lower() == 'sgd' else \
+                Adam(learning_rate=learning_rate)
+            model.compile(optimizer=optimiser, loss='sparse_categorical_crossentropy',
+                          metrics=['accuracy', F1Score(len(self._config['categories']), 'micro')])
+
+            loss, acc, f1_score = model.evaluate(self.test_data['image_data'], self.test_data['class_'])
+            models.append({
+                'model': model,
+                'loss': loss,
+                'accuracy': acc,
+                'f1_score': f1_score
+            })
+
+        return models
 
     def _publish_models(self, **kwargs):
-        # TODO: Save model in some location (onnx model save for each model
-        pass
+        # Get best n models based on the evaluation during the test phase
+        n_value = self._config['best_model_publish_count']
+        evaluation_metric = self._config['best_model_publish_metric']
+
+        best_n_function = heapq.nlargest if evaluation_metric != 'loss' and evaluation_metric != 'val_loss' \
+            else heapq.nsmallest
+        best_models = best_n_function(n_value, self.models,
+                                      key=lambda model: model[evaluation_metric])
+        best_models = [model_evaluation['model'] for model_evaluation in best_models]
+
+        # Save all best models
+        input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+
+        for i in range(len(best_models)):
+            onnx_model, _ = tf2onnx.convert.from_keras(best_models[i], input_sig, opset=13)
+            onnx.save(onnx_model, f'{self._config["publish_directory"]}/model-{i+1}.onnx')
+
+        return best_models
 
 
 def _split_data(data, fraction: float, random_state: RandomState):
@@ -282,21 +332,22 @@ def _apply_mask(data, mask):
 
 def main():
     config = {
+        'use_mlflow': True,
         'random_seed': 69,  # 4_269
         'experiment_name': 'ONNX Emotion Recognition',
         'use_talos_automl': True,
         'random_method': 'latin_sudoku',
-        'random_method_fraction': 0.0025,  # 0.005 = .5% of hyperparameter options will be checked
+        'random_method_fraction': 0.00042,  # 0.005 = .5% of hyperparameter options will be checked
         'categories': ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise'],
-        'data_directory': '../train/',
+        'data_directory': 'base-data/train/',
         'image_height': 48,
         'image_width': 48,
         'train_validation_fraction': .75,  #
         'train_test_fraction': .8,  # creates a 60/20/20 train/validation/test split
-        'epochs': 50,
+        'epochs': 5,
         'early_stopping': {
             'metric': 'val_loss',
-            'mode': 'max',
+            'mode': 'min',
             'min_delta': 0.001,
             'patience': 10,
         },
@@ -312,18 +363,19 @@ def main():
             'conv_dropout': [.25],
             'dense_layer_count': [1, 2, 3],
             'dense_nodes': [128, 256, 512, 768],
-            'dense_activation': ['relu'],
+            'dense_activation': ['relu', 'elu'],
             'dense_dropout': [.25],
         },
-        'best_model_test_metric': 'f1_score',
+        'best_model_test_count': 5,
+        'best_model_test_metric': 'accuracy',
+        'best_model_publish_count': 1,
+        'best_model_publish_metric': 'accuracy',
+        'publish_directory': 'onnx-models',
     }
 
     # TODO: Extract data split to being a pipeline responsibility
-    # Build and execute a basic pipeline
-    data_processor = EmotionDataProcessor(config=config).process_data().process_features()
-    model_generator = EmotionModelGenerator(config=config, data=data_processor.features).generate().validate()
-    model_publisher = EmotionModelPublisher(config=config, models=model_generator.models, data=data_processor.features)\
-        .test()
+    pipeline = BasicPipeline(EmotionDataProcessor, EmotionModelGenerator, EmotionModelPublisher, config)
+    pipeline.run()
 
 
 if __name__ == '__main__':
