@@ -56,8 +56,8 @@ class Pipeline:
 
 
 class DefaultDataProcessor(DataProcessor):
-    training_dir = '../train/'
-    test_dir = '../test/'
+    training_dir = '../experimentation/base-data/train/'
+    test_dir = '../experimentation/base-data/test/'
     img_size = (48, 48)
     batch_size = 64
 
@@ -160,7 +160,7 @@ class DefaultModelGenerator(ModelGenerator):
 
         # reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1,
         #                               patience=2, min_lr=0.00001, mode='auto')
-        checkpoint = ModelCheckpoint('../weights/model_weights.{epoch:04d}.{val_accuracy}.hdf5',
+        checkpoint = ModelCheckpoint('weights/model_weights.{epoch:04d}.{val_accuracy}.hdf5',
                                      monitor='val_accuracy', save_weights_only=True, mode='max')
         early_stopping = EarlyStopping(monitor='val_accuracy', mode='max', verbose=1, min_delta=0.001, patience=10)
         callbacks = [early_stopping, checkpoint]
@@ -221,7 +221,7 @@ def main():
     mlflow.set_tracking_uri('http://blazoned.nl:8999')
     mlflow.set_experiment("ONNX Emotion Recognition")
 
-    with mlflow.start_run(run_name="v0.0.1") as run:
+    with mlflow.start_run(run_name="v0.0.2") as run:
         print("Running an mlflow test for onnx models...")
 
         pipeline = Pipeline()
@@ -232,6 +232,7 @@ if __name__ == '__main__':
     print(tf.__version__)
 
     cpu = tf.config.experimental.list_logical_devices('CPU')[0]
+    gpu = tf.config.experimental.list_logical_devices('GPU')[0]
 
-    with tf.device(cpu.name):
+    with tf.device(gpu.name):
         main()

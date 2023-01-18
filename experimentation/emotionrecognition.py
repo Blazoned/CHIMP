@@ -1,9 +1,8 @@
 from __future__ import annotations
-
-import heapq
 from typing import Union
 
-from os import path, listdir
+import heapq
+from os import path, listdir, environ
 from random import seed as set_py_random_seed
 
 from collections import Counter
@@ -27,21 +26,16 @@ from tensorflow_addons.metrics import F1Score
 import onnx
 import tf2onnx
 
+from mlflow import log_metric, log_param, log_artifacts
+from mlflow.onnx import log_model
+
 from data import DataProcessorABC
 from model import ModelGeneratorABC
 from publisher import ModelPublisherABC
-from pipeline import BasicPipeline
+from pipeline import BasicPipeline, MLFlowPipeline
 
 
 class EmotionDataProcessor(DataProcessorABC):
-    training_dir = '../train/'
-    test_dir = '../test/'
-    img_size = (48, 48)
-    batch_size = 64
-
-    training_data_generator = None
-    test_data_generator = None
-
     def _load_data(self):
         # Store data items in list of independent variables (the image) and target variables (the emotion label;
         #   coded into numerical id)
@@ -92,7 +86,7 @@ class EmotionDataProcessor(DataProcessorABC):
 
 
 class EmotionModelGenerator(ModelGeneratorABC):
-    experiment_no = 1
+    # Define fields with default values
     train_data = None
     validation_data = None
 
@@ -184,12 +178,6 @@ class EmotionModelGenerator(ModelGeneratorABC):
                             batch_size=128, shuffle=True,
                             validation_data=(self.validation_data['image_data'], self.validation_data['class_']),
                             callbacks=callbacks, )
-
-        # NOTE: no longer saving each model, only saving published models.
-        #     input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1],
-        #                                tf.float32)]
-        #     onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
-        #     onnx.save(onnx_model, 'onnx-models/model.onnx')
 
         if self._config['use_talos_automl']:
             return history, model
@@ -322,17 +310,27 @@ def _apply_mask(data, mask):
     return data
 
 
-# def build_emotion_recognition_pipeline(config: dict, use_mlflow=False):
-#     if use_mlflow:
-#         raise NotImplementedError()
-#     else:
-#         return BasicPipeline(config=config, data_processor=EmotionDataProcessor,
-#                              model_generator=EmotionModelGenerator, model_publisher=EmotionModelPublisher)
+def build_emotion_recognition_pipeline(config: dict):
+    # TODO: Replace components with mlflow compliant alternatives
+    if config['use_mlflow']:
+        return MLFlowPipeline(config=config, data_processor=EmotionDataProcessor,
+                              model_generator=EmotionModelGenerator, model_publisher=EmotionModelPublisher)
+    else:
+        return BasicPipeline(config=config, data_processor=EmotionDataProcessor,
+                             model_generator=EmotionModelGenerator, model_publisher=EmotionModelPublisher)
 
 
 def main():
+    # TODO: Load from json file
     config = {
         'use_mlflow': True,
+        'mlflow_config': {
+            'base_model_version': 0,
+            'tracking_uri': 'http://blazoned.nl:8999',
+            'access_key': 'admin',
+            'secret_access_key': 'password',
+            's3_endpoint': 'http://blazoned.nl:9000',
+        },
         'random_seed': 69,  # 4_269
         'experiment_name': 'ONNX Emotion Recognition',
         'use_talos_automl': True,
@@ -373,8 +371,15 @@ def main():
         'publish_directory': 'onnx-models',
     }
 
+    # TODO: Put login in secrets file
+    # Set environment variables
+    if config['use_mlflow']:
+        environ["AWS_ACCESS_KEY_ID"] = "admin"
+        environ["AWS_SECRET_ACCESS_KEY"] = "password"
+        environ["MLFLOW_S3_ENDPOINT_URL"] = "http://blazoned.nl:9000"
+
     # TODO: Extract data split to being a pipeline responsibility
-    pipeline = BasicPipeline(EmotionDataProcessor, EmotionModelGenerator, EmotionModelPublisher, config)
+    pipeline = build_emotion_recognition_pipeline(config=config)
     pipeline.run()
 
 
