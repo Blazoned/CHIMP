@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import tempfile
 from typing import Union
 
 import heapq
@@ -26,7 +28,7 @@ from tensorflow_addons.metrics import F1Score
 import onnx
 import tf2onnx
 
-from mlflow import log_metric, log_param, log_artifacts
+from mlflow import start_run, log_metric, log_param, log_artifact
 from mlflow.onnx import log_model
 
 from data import DataProcessorABC
@@ -108,7 +110,7 @@ class EmotionModelGenerator(ModelGeneratorABC):
     ]
 
     def __init__(self, config: dict, data: Union[pd.DataFrame, any]):
-        super().__init__(config, data)
+        super(EmotionModelGenerator, self).__init__(config, data)
 
         # Split data into train and test set, then into train and validation set
         np_random = RandomState(self._config['random_seed'])
@@ -233,7 +235,7 @@ class EmotionModelGenerator(ModelGeneratorABC):
 class EmotionModelPublisher(ModelPublisherABC):
     test_data = None
 
-    def _test_models(self, **kwargs):
+    def _test_models(self):
         # Split data into train and test set using the same set as used in the model component, discard training
         _, self.test_data = _split_data(self._data, self._config['train_test_fraction'],
                                         random_state=RandomState(self._config['random_seed']))
@@ -274,7 +276,7 @@ class EmotionModelPublisher(ModelPublisherABC):
 
         return models
 
-    def _publish_models(self, **kwargs):
+    def _publish_models(self):
         # Get best n models based on the evaluation during the test phase
         n_value = self._config['best_model_publish_count']
         evaluation_metric = self._config['best_model_publish_metric']
@@ -295,6 +297,81 @@ class EmotionModelPublisher(ModelPublisherABC):
         return best_models
 
 
+class MLFlowEmotionDataProcessor(EmotionDataProcessor):
+    def _process_features(self):
+        data = super(MLFlowEmotionDataProcessor, self)._process_features()
+
+        # Record complete dataset in npy format for parent run
+        _save_data_object(data, artifact_path='data/complete')
+
+        return data
+
+
+class MLFlowEmotionModelGenerator(EmotionModelGenerator):
+    def __init__(self, config: dict, data: Union[pd.DataFrame, any]):
+        super(MLFlowEmotionModelGenerator, self).__init__(config, data)
+
+        # Record training and validation data in csv format for parent run
+        _save_data_object(self.train_data, artifact_path='data/training')
+        _save_data_object(self.validation_data, artifact_path='data/validation')
+
+    def _validate(self):
+        scan_result = super(MLFlowEmotionModelGenerator, self)._validate()
+
+        # For each model record a child run
+        mlflow_config = self._config['mlflow_config']
+        run_name_base = f"v{mlflow_config['base_model_version']}.{mlflow_config['sub_model_version']}."
+
+        for index, model_info in scan_result[0].data.iterrows():
+            with start_run(run_name=run_name_base+(index+1), nested=True) as run:
+                # Record parameters
+                log_param('epochs', model_info['round_epochs'])
+                log_param('learning_rate', model_info['learning_rate'])
+                log_param('optimiser', model_info['optimiser'])
+                log_param('convolutional_layer_count', model_info['convolutional_layer_count'])
+                log_param('convolutional_layer_filter', model_info['conv_filter'])
+                log_param('convolutional_layer_kernel_size', model_info['conv_kernel_size'])
+                log_param('convolutional_layer_padding', model_info['conv_padding'])
+                log_param('convolutional_layer_max_pooling', model_info['conv_max_pooling'])
+                log_param('convolutional_layer_activation', model_info['conv_activation'])
+                log_param('convolutional_layer_dropout', model_info['conv_dropout'])
+                log_param('dense_layer_count', model_info['dense_layer_count'])
+                log_param('dense_layer_nodes', model_info['dense_nodes'])
+                log_param('dense_layer_activation', model_info['activation'])
+                log_param('dense_layer_dropout', model_info['dense_dropout'])
+
+                # Record metrics
+                log_metric('duration', model_info['duration'])
+                log_metric('loss', model_info['loss'])
+                log_metric('accuracy', model_info['accuracy'])
+                log_metric('f1_score', model_info['f1_score'])
+                log_metric('val_loss', model_info['val_loss'])
+                log_metric('val_accuracy', model_info['val_accuracy'])
+                log_metric('val_f1_score', model_info['val_f1_score'])
+
+                # TODO: Record model
+                #   Instantiate model from json and weights
+                #   Transform model to onnx
+                #   Upload model
+
+        return scan_result
+
+
+class MLFlowEmotionModelPublisher(EmotionModelPublisher):
+    def _publish_models(self):
+        best_models = super(MLFlowEmotionModelPublisher, self)._publish_models()
+
+        # Record test data in npy format for parent run
+        _save_data_object(self.test_data, artifact_path='data/test')
+
+        # TODO: Record for each evaluation a child run with
+        #   Parameters
+        #   Metrics
+        #   Model (already converted)
+
+        return best_models
+
+
 def _split_data(data, fraction: float, random_state: RandomState):
     mask = random_state.random(len(data['image_data'])) < fraction
 
@@ -310,11 +387,24 @@ def _apply_mask(data, mask):
     return data
 
 
+def _save_data_object(data_object: dict, artifact_path: str):
+    for data_entry_key in data_object.keys():
+        _save_data_item(data_object[data_entry_key], artifact_filename=data_entry_key, artifact_path=artifact_path)
+
+
+def _save_data_item(data_item: np.ndarray, artifact_filename, artifact_path):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        local_file = path.join(tmpdir, f"{artifact_filename}.npy")
+
+        np.save(file=local_file, arr=data_item)
+        log_artifact(local_file, artifact_path)
+
+
 def build_emotion_recognition_pipeline(config: dict):
     # TODO: Replace components with mlflow compliant alternatives
     if config['use_mlflow']:
-        return MLFlowPipeline(config=config, data_processor=EmotionDataProcessor,
-                              model_generator=EmotionModelGenerator, model_publisher=EmotionModelPublisher)
+        return MLFlowPipeline(config=config, data_processor=MLFlowEmotionDataProcessor,
+                              model_generator=MLFlowEmotionModelGenerator, model_publisher=MLFlowEmotionModelPublisher)
     else:
         return BasicPipeline(config=config, data_processor=EmotionDataProcessor,
                              model_generator=EmotionModelGenerator, model_publisher=EmotionModelPublisher)
