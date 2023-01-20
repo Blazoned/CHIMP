@@ -374,7 +374,7 @@ class MLFlowEmotionModelGenerator(EmotionModelGenerator):
 
 class MLFlowEmotionModelPublisher(EmotionModelPublisher):
     def _test_models(self):
-        models = super(MLFlowEmotionModelPublisher, self)._publish_models()
+        models = super(MLFlowEmotionModelPublisher, self)._test_models()
 
         # Record test data in npy format for parent run
         _save_data_object(self.test_data, artifact_path='data/test')
@@ -426,6 +426,7 @@ class MLFlowEmotionModelPublisher(EmotionModelPublisher):
         # TODO: Put best model in staging
 
         return best_models
+
 
 def _split_data(data, fraction: float, random_state: RandomState):
     mask = random_state.random(len(data['image_data'])) < fraction
