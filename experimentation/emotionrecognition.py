@@ -269,9 +269,10 @@ class EmotionModelPublisher(ModelPublisherABC):
             loss, acc, f1_score = model.evaluate(self.test_data['image_data'], self.test_data['class_'])
             models.append({
                 'model': model,
+                'data': data,
                 'loss': loss,
                 'accuracy': acc,
-                'f1_score': f1_score
+                'f1_score': f1_score,
             })
 
         return models
@@ -285,13 +286,12 @@ class EmotionModelPublisher(ModelPublisherABC):
             else heapq.nsmallest
         best_models = best_n_function(n_value, self.models,
                                       key=lambda model: model[evaluation_metric])
-        best_models = [model_evaluation['model'] for model_evaluation in best_models]
 
         # Save all best models
         input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
 
         for i in range(len(best_models)):
-            onnx_model, _ = tf2onnx.convert.from_keras(best_models[i], input_sig, opset=13)
+            onnx_model, _ = tf2onnx.convert.from_keras(best_models[i]['model'], input_sig, opset=13)
             onnx.save(onnx_model, f'{self._config["publish_directory"]}/model-{i+1}.onnx')
 
         return best_models
@@ -316,14 +316,15 @@ class MLFlowEmotionModelGenerator(EmotionModelGenerator):
         _save_data_object(self.validation_data, artifact_path='data/validation')
 
     def _validate(self):
-        scan_result = super(MLFlowEmotionModelGenerator, self)._validate()
+        result = super(MLFlowEmotionModelGenerator, self)._validate()
+        scan_object = result[0]
 
         # For each model record a child run
         mlflow_config = self._config['mlflow_config']
         run_name_base = f"v{mlflow_config['base_model_version']}.{mlflow_config['sub_model_version']}."
 
-        for index, model_info in scan_result[0].data.iterrows():
-            with start_run(run_name=run_name_base+(index+1), nested=True) as run:
+        for index, model_info in scan_object.data.iterrows():
+            with start_run(run_name=run_name_base+str(index+1), nested=True) as run:
                 # Record parameters
                 log_param('epochs', model_info['round_epochs'])
                 log_param('learning_rate', model_info['learning_rate'])
@@ -337,7 +338,7 @@ class MLFlowEmotionModelGenerator(EmotionModelGenerator):
                 log_param('convolutional_layer_dropout', model_info['conv_dropout'])
                 log_param('dense_layer_count', model_info['dense_layer_count'])
                 log_param('dense_layer_nodes', model_info['dense_nodes'])
-                log_param('dense_layer_activation', model_info['activation'])
+                log_param('dense_layer_activation', model_info['dense_activation'])
                 log_param('dense_layer_dropout', model_info['dense_dropout'])
 
                 # Record metrics
@@ -349,28 +350,82 @@ class MLFlowEmotionModelGenerator(EmotionModelGenerator):
                 log_metric('val_accuracy', model_info['val_accuracy'])
                 log_metric('val_f1_score', model_info['val_f1_score'])
 
-                # TODO: Record model
-                #   Instantiate model from json and weights
-                #   Transform model to onnx
-                #   Upload model
+                # Instantiate model from json and weights
+                model = model_from_json(scan_object.saved_models[index])
+                model.set_weights(scan_object.saved_weights[index])
 
-        return scan_result
+                learning_rate = model_info['learning_rate']
+                optimiser = Adam(learning_rate=learning_rate) if model_info['optimiser'].lower() == 'adam' else \
+                    SGD(learning_rate=learning_rate) if model_info['optimiser'].lower() == 'sgd' else \
+                        Adam(learning_rate=learning_rate)
+                model.compile(optimizer=optimiser, loss='sparse_categorical_crossentropy',
+                              metrics=['accuracy', F1Score(len(self._config['categories']), 'micro')])
+
+                #   Transform model to onnx and record model
+                input_sig = [
+                    tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+                onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
+
+                log_model(onnx_model=onnx_model, artifact_path="model",
+                          registered_model_name=self._config['model_name'])
+
+        return result
 
 
 class MLFlowEmotionModelPublisher(EmotionModelPublisher):
-    def _publish_models(self):
-        best_models = super(MLFlowEmotionModelPublisher, self)._publish_models()
+    def _test_models(self):
+        models = super(MLFlowEmotionModelPublisher, self)._publish_models()
 
         # Record test data in npy format for parent run
         _save_data_object(self.test_data, artifact_path='data/test')
 
-        # TODO: Record for each evaluation a child run with
-        #   Parameters
-        #   Metrics
-        #   Model (already converted)
+        # For each evaluation record a child run
+        mlflow_config = self._config['mlflow_config']
+        run_name_base = f"v{mlflow_config['base_model_version']}.{mlflow_config['sub_model_version']}."
+
+        for index, model_entry in enumerate(models):
+            model = model_entry['model']
+            model_info = model_entry['data']
+
+            with start_run(run_name=run_name_base + str(index + 1) + ' (eval)', nested=True) as run:
+                # Record parameters
+                log_param('epochs', model_info['round_epochs'])
+                log_param('learning_rate', model_info['learning_rate'])
+                log_param('optimiser', model_info['optimiser'])
+                log_param('convolutional_layer_count', model_info['convolutional_layer_count'])
+                log_param('convolutional_layer_filter', model_info['conv_filter'])
+                log_param('convolutional_layer_kernel_size', model_info['conv_kernel_size'])
+                log_param('convolutional_layer_padding', model_info['conv_padding'])
+                log_param('convolutional_layer_max_pooling', model_info['conv_max_pooling'])
+                log_param('convolutional_layer_activation', model_info['conv_activation'])
+                log_param('convolutional_layer_dropout', model_info['conv_dropout'])
+                log_param('dense_layer_count', model_info['dense_layer_count'])
+                log_param('dense_layer_nodes', model_info['dense_nodes'])
+                log_param('dense_layer_activation', model_info['dense_activation'])
+                log_param('dense_layer_dropout', model_info['dense_dropout'])
+
+                # Record metrics
+                log_metric('duration', model_info['duration'])
+                log_metric('loss', model_entry['loss'])
+                log_metric('accuracy', model_entry['accuracy'])
+                log_metric('f1_score', model_entry['f1_score'])
+
+                #   Transform model to onnx and record model
+                input_sig = [
+                    tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+                onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
+
+                log_model(onnx_model=onnx_model, artifact_path="model",
+                          registered_model_name=self._config['model_name'])
+
+        return models
+
+    def _publish_models(self):
+        best_models = super(MLFlowEmotionModelPublisher, self)._publish_models()
+
+        # TODO: Put best model in staging
 
         return best_models
-
 
 def _split_data(data, fraction: float, random_state: RandomState):
     mask = random_state.random(len(data['image_data'])) < fraction
@@ -401,7 +456,6 @@ def _save_data_item(data_item: np.ndarray, artifact_filename, artifact_path):
 
 
 def build_emotion_recognition_pipeline(config: dict):
-    # TODO: Replace components with mlflow compliant alternatives
     if config['use_mlflow']:
         return MLFlowPipeline(config=config, data_processor=MLFlowEmotionDataProcessor,
                               model_generator=MLFlowEmotionModelGenerator, model_publisher=MLFlowEmotionModelPublisher)
@@ -422,6 +476,7 @@ def main():
             's3_endpoint': 'http://blazoned.nl:9000',
         },
         'random_seed': 69,  # 4_269
+        'model_name': 'onnx emotion model',
         'experiment_name': 'ONNX Emotion Recognition',
         'use_talos_automl': True,
         'random_method': 'latin_sudoku',
