@@ -423,7 +423,42 @@ class MLFlowEmotionModelPublisher(EmotionModelPublisher):
     def _publish_models(self):
         best_models = super(MLFlowEmotionModelPublisher, self)._publish_models()
 
+        best_model_entry = best_models[0]
+        best_model = best_model_entry['model']
+        best_model_info = best_model_entry['data']
+
+        # Record parameters for best model
+        log_param('epochs', best_model_info['round_epochs'])
+        log_param('learning_rate', best_model_info['learning_rate'])
+        log_param('optimiser', best_model_info['optimiser'])
+        log_param('convolutional_layer_count', best_model_info['convolutional_layer_count'])
+        log_param('convolutional_layer_filter', best_model_info['conv_filter'])
+        log_param('convolutional_layer_kernel_size', best_model_info['conv_kernel_size'])
+        log_param('convolutional_layer_padding', best_model_info['conv_padding'])
+        log_param('convolutional_layer_max_pooling', best_model_info['conv_max_pooling'])
+        log_param('convolutional_layer_activation', best_model_info['conv_activation'])
+        log_param('convolutional_layer_dropout', best_model_info['conv_dropout'])
+        log_param('dense_layer_count', best_model_info['dense_layer_count'])
+        log_param('dense_layer_nodes', best_model_info['dense_nodes'])
+        log_param('dense_layer_activation', best_model_info['dense_activation'])
+        log_param('dense_layer_dropout', best_model_info['dense_dropout'])
+
+        # Record metrics for best model
+        log_metric('duration', best_model_info['duration'])
+        log_metric('loss', best_model_entry['loss'])
+        log_metric('accuracy', best_model_entry['accuracy'])
+        log_metric('f1_score', best_model_entry['f1_score'])
+
+        #   Transform best model to onnx and record model
+        input_sig = [
+            tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+        onnx_model, _ = tf2onnx.convert.from_keras(best_model, input_sig, opset=13)
+
+        result = log_model(onnx_model=onnx_model, artifact_path="model",
+                           registered_model_name=self._config['model_name'])
+
         # TODO: Put best model in staging
+
 
         return best_models
 
@@ -481,14 +516,14 @@ def main():
         'experiment_name': 'ONNX Emotion Recognition',
         'use_talos_automl': True,
         'random_method': 'latin_sudoku',
-        'random_method_fraction': 0.00042,  # 0.005 = .5% of hyperparameter options will be checked
+        'random_method_fraction': 0.0025,  # 0.005 = .5% of hyperparameter options will be checked
         'categories': ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise'],
         'data_directory': 'base-data/train/',
         'image_height': 48,
         'image_width': 48,
         'train_validation_fraction': .75,  #
         'train_test_fraction': .8,  # creates a 60/20/20 train/validation/test split
-        'epochs': 5,
+        'epochs': 10,
         'early_stopping': {
             'metric': 'val_loss',
             'mode': 'min',

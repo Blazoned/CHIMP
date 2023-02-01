@@ -96,7 +96,6 @@ class BasicPipeline:
     # endregion
 
 
-# TODO: Implement an mlflow pipeline
 class MLFlowPipeline(BasicPipeline):
     def __init__(self, data_processor: Type[DataProcessorABC] = None, model_generator: Type[ModelGeneratorABC] = None,
                  model_publisher: Type[ModelPublisherABC] = None, config: dict = None):
