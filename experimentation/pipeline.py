@@ -14,6 +14,8 @@ from model import ModelGeneratorABC
 from publisher import ModelPublisherABC
 
 import pandas as pd
+
+from mlflow import set_tracking_uri, set_experiment, start_run
 # endregion
 
 
@@ -66,7 +68,7 @@ class BasicPipeline:
                               .validate()
 
         model_publisher = self._model_publisher_factory(config=self._config,
-                                                        models=model_generator.models, data=pd.DataFrame())\
+                                                        models=model_generator.models, data=data_processor.features)\
                               .test()\
                               .publish()
 
@@ -93,4 +95,26 @@ class BasicPipeline:
             print(f"Models published:\n {model_publisher.published_models}\n")
     # endregion
 
-# TODO: Implement an mlflow pipeline
+
+class MLFlowPipeline(BasicPipeline):
+    def __init__(self, data_processor: Type[DataProcessorABC] = None, model_generator: Type[ModelGeneratorABC] = None,
+                 model_publisher: Type[ModelPublisherABC] = None, config: dict = None):
+        super(MLFlowPipeline, self).__init__(data_processor=data_processor, model_generator=model_generator,
+                                             model_publisher=model_publisher, config=config)
+
+        # Set MLFlow config
+        self._mlflow_config = self._config['mlflow_config']
+        self._mlflow_config['sub_model_version'] = 0
+
+        set_tracking_uri(self._mlflow_config['tracking_uri'])
+        set_experiment(self._config['experiment_name'])
+
+    def run(self, data_in: Union[pd.DataFrame, Any] = None):
+        run_name = f"v{self._mlflow_config['base_model_version']}.{self._mlflow_config['sub_model_version']}.0"
+
+        with start_run(run_name=run_name) as run:
+            published_models = super(MLFlowPipeline, self).run(data_in)
+
+        self._mlflow_config['sub_model_version'] += 1
+
+        return published_models

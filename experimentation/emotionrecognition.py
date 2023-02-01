@@ -1,7 +1,10 @@
 from __future__ import annotations
+
+import tempfile
 from typing import Union
 
-from os import path, listdir
+import heapq
+from os import path, listdir, environ
 from random import seed as set_py_random_seed
 
 from collections import Counter
@@ -11,11 +14,12 @@ import numpy as np
 from numpy.random import RandomState
 import pandas as pd
 
-from talos import Scan, Evaluate
+from talos import Scan
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D
 from tensorflow.keras.layers import BatchNormalization, Activation, MaxPooling2D
+from tensorflow.keras.models import model_from_json
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
@@ -24,21 +28,16 @@ from tensorflow_addons.metrics import F1Score
 import onnx
 import tf2onnx
 
+from mlflow import start_run, log_metric, log_param, log_artifact
+from mlflow.onnx import log_model
+
 from data import DataProcessorABC
 from model import ModelGeneratorABC
 from publisher import ModelPublisherABC
-from pipeline import BasicPipeline
+from pipeline import BasicPipeline, MLFlowPipeline
 
 
 class EmotionDataProcessor(DataProcessorABC):
-    training_dir = '../train/'
-    test_dir = '../test/'
-    img_size = (48, 48)
-    batch_size = 64
-
-    training_data_generator = None
-    test_data_generator = None
-
     def _load_data(self):
         # Store data items in list of independent variables (the image) and target variables (the emotion label;
         #   coded into numerical id)
@@ -89,7 +88,7 @@ class EmotionDataProcessor(DataProcessorABC):
 
 
 class EmotionModelGenerator(ModelGeneratorABC):
-    experiment_no = 1
+    # Define fields with default values
     train_data = None
     validation_data = None
 
@@ -111,7 +110,7 @@ class EmotionModelGenerator(ModelGeneratorABC):
     ]
 
     def __init__(self, config: dict, data: Union[pd.DataFrame, any]):
-        super().__init__(config, data)
+        super(EmotionModelGenerator, self).__init__(config, data)
 
         # Split data into train and test set, then into train and validation set
         np_random = RandomState(self._config['random_seed'])
@@ -182,10 +181,6 @@ class EmotionModelGenerator(ModelGeneratorABC):
                             validation_data=(self.validation_data['image_data'], self.validation_data['class_']),
                             callbacks=callbacks, )
 
-        input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
-        onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
-        onnx.save(onnx_model, 'onnx_models/model.onnx')
-
         if self._config['use_talos_automl']:
             return history, model
         else:
@@ -240,21 +235,232 @@ class EmotionModelGenerator(ModelGeneratorABC):
 class EmotionModelPublisher(ModelPublisherABC):
     test_data = None
 
-    def _test_models(self, **kwargs):
+    def _test_models(self):
         # Split data into train and test set using the same set as used in the model component, discard training
         _, self.test_data = _split_data(self._data, self._config['train_test_fraction'],
                                         random_state=RandomState(self._config['random_seed']))
 
-        # TODO: Test (n-)best model(s)
-        evaluator = Evaluate(self.models[0])
-        result = evaluator.evaluate(x=self.test_data['image_data'], y=self.test_data['class_'],
-                                    task='multi_class', metric=self._config['best_model_test_metric'])
+        # Get best n models according to training and validation results
+        talos_scan = self.models[0]
+        scan_results = zip(talos_scan.saved_models, talos_scan.saved_weights, talos_scan.data.to_dict('records'))
 
-        pass
+        n_value = self._config['best_model_test_count']
+        evaluation_metric = self._config['best_model_test_metric']
 
-    def _publish_models(self, **kwargs):
-        # TODO: Save model in some location (onnx model save for each model
-        pass
+        best_n_function = heapq.nlargest if evaluation_metric != 'loss' and evaluation_metric != 'val_loss' \
+            else heapq.nsmallest
+        holdout_best_models = best_n_function(n_value, scan_results,
+                                              key=lambda model_results: model_results[2][evaluation_metric])
+
+        # Evaluate the n best models according to the scan object
+        models = []
+
+        for model_json, weights, data in holdout_best_models:
+            model = model_from_json(model_json)
+            model.set_weights(weights)
+
+            learning_rate = data['learning_rate']
+            optimiser = Adam(learning_rate=learning_rate) if data['optimiser'].lower() == 'adam' else \
+                SGD(learning_rate=learning_rate) if data['optimiser'].lower() == 'sgd' else \
+                Adam(learning_rate=learning_rate)
+            model.compile(optimizer=optimiser, loss='sparse_categorical_crossentropy',
+                          metrics=['accuracy', F1Score(len(self._config['categories']), 'micro')])
+
+            loss, acc, f1_score = model.evaluate(self.test_data['image_data'], self.test_data['class_'])
+            models.append({
+                'model': model,
+                'data': data,
+                'loss': loss,
+                'accuracy': acc,
+                'f1_score': f1_score,
+            })
+
+        return models
+
+    def _publish_models(self):
+        # Get best n models based on the evaluation during the test phase
+        n_value = self._config['best_model_publish_count']
+        evaluation_metric = self._config['best_model_publish_metric']
+
+        best_n_function = heapq.nlargest if evaluation_metric != 'loss' and evaluation_metric != 'val_loss' \
+            else heapq.nsmallest
+        best_models = best_n_function(n_value, self.models,
+                                      key=lambda model: model[evaluation_metric])
+
+        # Save all best models
+        input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+
+        for i in range(len(best_models)):
+            onnx_model, _ = tf2onnx.convert.from_keras(best_models[i]['model'], input_sig, opset=13)
+            onnx.save(onnx_model, f'{self._config["publish_directory"]}/model-{i+1}.onnx')
+
+        return best_models
+
+
+class MLFlowEmotionDataProcessor(EmotionDataProcessor):
+    def _process_features(self):
+        data = super(MLFlowEmotionDataProcessor, self)._process_features()
+
+        # Record complete dataset in npy format for parent run
+        _save_data_object(data, artifact_path='data/complete')
+
+        return data
+
+
+class MLFlowEmotionModelGenerator(EmotionModelGenerator):
+    def __init__(self, config: dict, data: Union[pd.DataFrame, any]):
+        super(MLFlowEmotionModelGenerator, self).__init__(config, data)
+
+        # Record training and validation data in csv format for parent run
+        _save_data_object(self.train_data, artifact_path='data/training')
+        _save_data_object(self.validation_data, artifact_path='data/validation')
+
+    def _validate(self):
+        result = super(MLFlowEmotionModelGenerator, self)._validate()
+        scan_object = result[0]
+
+        # For each model record a child run
+        mlflow_config = self._config['mlflow_config']
+        run_name_base = f"v{mlflow_config['base_model_version']}.{mlflow_config['sub_model_version']}."
+
+        for index, model_info in scan_object.data.iterrows():
+            with start_run(run_name=run_name_base+str(index+1), nested=True) as run:
+                # Record parameters
+                log_param('epochs', model_info['round_epochs'])
+                log_param('learning_rate', model_info['learning_rate'])
+                log_param('optimiser', model_info['optimiser'])
+                log_param('convolutional_layer_count', model_info['convolutional_layer_count'])
+                log_param('convolutional_layer_filter', model_info['conv_filter'])
+                log_param('convolutional_layer_kernel_size', model_info['conv_kernel_size'])
+                log_param('convolutional_layer_padding', model_info['conv_padding'])
+                log_param('convolutional_layer_max_pooling', model_info['conv_max_pooling'])
+                log_param('convolutional_layer_activation', model_info['conv_activation'])
+                log_param('convolutional_layer_dropout', model_info['conv_dropout'])
+                log_param('dense_layer_count', model_info['dense_layer_count'])
+                log_param('dense_layer_nodes', model_info['dense_nodes'])
+                log_param('dense_layer_activation', model_info['dense_activation'])
+                log_param('dense_layer_dropout', model_info['dense_dropout'])
+
+                # Record metrics
+                log_metric('duration', model_info['duration'])
+                log_metric('loss', model_info['loss'])
+                log_metric('accuracy', model_info['accuracy'])
+                log_metric('f1_score', model_info['f1_score'])
+                log_metric('val_loss', model_info['val_loss'])
+                log_metric('val_accuracy', model_info['val_accuracy'])
+                log_metric('val_f1_score', model_info['val_f1_score'])
+
+                # Instantiate model from json and weights
+                model = model_from_json(scan_object.saved_models[index])
+                model.set_weights(scan_object.saved_weights[index])
+
+                learning_rate = model_info['learning_rate']
+                optimiser = Adam(learning_rate=learning_rate) if model_info['optimiser'].lower() == 'adam' else \
+                    SGD(learning_rate=learning_rate) if model_info['optimiser'].lower() == 'sgd' else \
+                        Adam(learning_rate=learning_rate)
+                model.compile(optimizer=optimiser, loss='sparse_categorical_crossentropy',
+                              metrics=['accuracy', F1Score(len(self._config['categories']), 'micro')])
+
+                #   Transform model to onnx and record model
+                input_sig = [
+                    tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+                onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
+
+                log_model(onnx_model=onnx_model, artifact_path="model",
+                          registered_model_name=self._config['model_name'])
+
+        return result
+
+
+class MLFlowEmotionModelPublisher(EmotionModelPublisher):
+    def _test_models(self):
+        models = super(MLFlowEmotionModelPublisher, self)._test_models()
+
+        # Record test data in npy format for parent run
+        _save_data_object(self.test_data, artifact_path='data/test')
+
+        # For each evaluation record a child run
+        mlflow_config = self._config['mlflow_config']
+        run_name_base = f"v{mlflow_config['base_model_version']}.{mlflow_config['sub_model_version']}."
+
+        for index, model_entry in enumerate(models):
+            model = model_entry['model']
+            model_info = model_entry['data']
+
+            with start_run(run_name=run_name_base + str(index + 1) + ' (eval)', nested=True) as run:
+                # Record parameters
+                log_param('epochs', model_info['round_epochs'])
+                log_param('learning_rate', model_info['learning_rate'])
+                log_param('optimiser', model_info['optimiser'])
+                log_param('convolutional_layer_count', model_info['convolutional_layer_count'])
+                log_param('convolutional_layer_filter', model_info['conv_filter'])
+                log_param('convolutional_layer_kernel_size', model_info['conv_kernel_size'])
+                log_param('convolutional_layer_padding', model_info['conv_padding'])
+                log_param('convolutional_layer_max_pooling', model_info['conv_max_pooling'])
+                log_param('convolutional_layer_activation', model_info['conv_activation'])
+                log_param('convolutional_layer_dropout', model_info['conv_dropout'])
+                log_param('dense_layer_count', model_info['dense_layer_count'])
+                log_param('dense_layer_nodes', model_info['dense_nodes'])
+                log_param('dense_layer_activation', model_info['dense_activation'])
+                log_param('dense_layer_dropout', model_info['dense_dropout'])
+
+                # Record metrics
+                log_metric('duration', model_info['duration'])
+                log_metric('loss', model_entry['loss'])
+                log_metric('accuracy', model_entry['accuracy'])
+                log_metric('f1_score', model_entry['f1_score'])
+
+                #   Transform model to onnx and record model
+                input_sig = [
+                    tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+                onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
+
+                log_model(onnx_model=onnx_model, artifact_path="model",
+                          registered_model_name=self._config['model_name'])
+
+        return models
+
+    def _publish_models(self):
+        best_models = super(MLFlowEmotionModelPublisher, self)._publish_models()
+
+        best_model_entry = best_models[0]
+        best_model = best_model_entry['model']
+        best_model_info = best_model_entry['data']
+
+        # Record parameters for best model
+        log_param('epochs', best_model_info['round_epochs'])
+        log_param('learning_rate', best_model_info['learning_rate'])
+        log_param('optimiser', best_model_info['optimiser'])
+        log_param('convolutional_layer_count', best_model_info['convolutional_layer_count'])
+        log_param('convolutional_layer_filter', best_model_info['conv_filter'])
+        log_param('convolutional_layer_kernel_size', best_model_info['conv_kernel_size'])
+        log_param('convolutional_layer_padding', best_model_info['conv_padding'])
+        log_param('convolutional_layer_max_pooling', best_model_info['conv_max_pooling'])
+        log_param('convolutional_layer_activation', best_model_info['conv_activation'])
+        log_param('convolutional_layer_dropout', best_model_info['conv_dropout'])
+        log_param('dense_layer_count', best_model_info['dense_layer_count'])
+        log_param('dense_layer_nodes', best_model_info['dense_nodes'])
+        log_param('dense_layer_activation', best_model_info['dense_activation'])
+        log_param('dense_layer_dropout', best_model_info['dense_dropout'])
+
+        # Record metrics for best model
+        log_metric('duration', best_model_info['duration'])
+        log_metric('loss', best_model_entry['loss'])
+        log_metric('accuracy', best_model_entry['accuracy'])
+        log_metric('f1_score', best_model_entry['f1_score'])
+
+        #   Transform best model to onnx and record model
+        input_sig = [
+            tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+        onnx_model, _ = tf2onnx.convert.from_keras(best_model, input_sig, opset=13)
+
+        result = log_model(onnx_model=onnx_model, artifact_path="model",
+                           registered_model_name=self._config['model_name'])
+
+        # TODO: Put best model in staging
+
+
+        return best_models
 
 
 def _split_data(data, fraction: float, random_state: RandomState):
@@ -272,31 +478,55 @@ def _apply_mask(data, mask):
     return data
 
 
-# def build_emotion_recognition_pipeline(config: dict, use_mlflow=False):
-#     if use_mlflow:
-#         raise NotImplementedError()
-#     else:
-#         return BasicPipeline(config=config, data_processor=EmotionDataProcessor,
-#                              model_generator=EmotionModelGenerator, model_publisher=EmotionModelPublisher)
+def _save_data_object(data_object: dict, artifact_path: str):
+    for data_entry_key in data_object.keys():
+        _save_data_item(data_object[data_entry_key], artifact_filename=data_entry_key, artifact_path=artifact_path)
+
+
+def _save_data_item(data_item: np.ndarray, artifact_filename, artifact_path):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        local_file = path.join(tmpdir, f"{artifact_filename}.npy")
+
+        np.save(file=local_file, arr=data_item)
+        log_artifact(local_file, artifact_path)
+
+
+def build_emotion_recognition_pipeline(config: dict):
+    if config['use_mlflow']:
+        return MLFlowPipeline(config=config, data_processor=MLFlowEmotionDataProcessor,
+                              model_generator=MLFlowEmotionModelGenerator, model_publisher=MLFlowEmotionModelPublisher)
+    else:
+        return BasicPipeline(config=config, data_processor=EmotionDataProcessor,
+                             model_generator=EmotionModelGenerator, model_publisher=EmotionModelPublisher)
 
 
 def main():
+    # TODO: Load from json file
     config = {
+        'use_mlflow': True,
+        'mlflow_config': {
+            'base_model_version': 0,
+            'tracking_uri': 'http://blazoned.nl:8999',
+            'access_key': 'admin',
+            'secret_access_key': 'password',
+            's3_endpoint': 'http://blazoned.nl:9000',
+        },
         'random_seed': 69,  # 4_269
+        'model_name': 'onnx emotion model',
         'experiment_name': 'ONNX Emotion Recognition',
         'use_talos_automl': True,
         'random_method': 'latin_sudoku',
         'random_method_fraction': 0.0025,  # 0.005 = .5% of hyperparameter options will be checked
         'categories': ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise'],
-        'data_directory': '../train/',
+        'data_directory': 'base-data/train/',
         'image_height': 48,
         'image_width': 48,
         'train_validation_fraction': .75,  #
         'train_test_fraction': .8,  # creates a 60/20/20 train/validation/test split
-        'epochs': 50,
+        'epochs': 10,
         'early_stopping': {
             'metric': 'val_loss',
-            'mode': 'max',
+            'mode': 'min',
             'min_delta': 0.001,
             'patience': 10,
         },
@@ -312,18 +542,26 @@ def main():
             'conv_dropout': [.25],
             'dense_layer_count': [1, 2, 3],
             'dense_nodes': [128, 256, 512, 768],
-            'dense_activation': ['relu'],
+            'dense_activation': ['relu', 'elu'],
             'dense_dropout': [.25],
         },
-        'best_model_test_metric': 'f1_score',
+        'best_model_test_count': 5,
+        'best_model_test_metric': 'accuracy',
+        'best_model_publish_count': 1,
+        'best_model_publish_metric': 'accuracy',
+        'publish_directory': 'onnx-models',
     }
 
+    # TODO: Put login in secrets file
+    # Set environment variables
+    if config['use_mlflow']:
+        environ["AWS_ACCESS_KEY_ID"] = "admin"
+        environ["AWS_SECRET_ACCESS_KEY"] = "password"
+        environ["MLFLOW_S3_ENDPOINT_URL"] = "http://blazoned.nl:9000"
+
     # TODO: Extract data split to being a pipeline responsibility
-    # Build and execute a basic pipeline
-    data_processor = EmotionDataProcessor(config=config).process_data().process_features()
-    model_generator = EmotionModelGenerator(config=config, data=data_processor.features).generate().validate()
-    model_publisher = EmotionModelPublisher(config=config, models=model_generator.models, data=data_processor.features)\
-        .test()
+    pipeline = build_emotion_recognition_pipeline(config=config)
+    pipeline.run()
 
 
 if __name__ == '__main__':
