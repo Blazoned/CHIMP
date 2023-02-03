@@ -8,7 +8,7 @@ def main():
     import json
     import requests
 
-    url = 'http://localhost:8500/invocations?stage=production'
+    url = 'http://localhost:8500/invocations?stage=staging'
     headers = {
         'Content-Type': 'application/json'
     }

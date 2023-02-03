@@ -19,6 +19,9 @@ def index():
 
 
 def main():
+    # Currently functioning as middleware to invoke inference using the mlflow serving api to load a models from
+    #   endpoint defined in environment variables.
+
     os.environ['AWS_ACCESS_KEY_ID'] = 'admin'
     os.environ['AWS_SECRET_ACCESS_KEY'] = 'password'
     os.environ['MLFLOW_TRACKING_URI'] = 'http://blazoned.nl:8999'
