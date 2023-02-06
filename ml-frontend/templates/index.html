@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Socket IO Camera Snapshots</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.2.0/socket.io.min.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
+<style>
+		body {
+			background-color: hsl(0,0%,92.5%);
+			margin: 0;
+			padding: 0;
+			font-family: Avantgarde, TeX Gyre Adventor, URW Gothic L, sans-serif;
+		}
+
+		.container {
+			height: 100vh;
+			width: 100vw;
+
+			display: grid;
+			grid-template-columns: 1fr max-content max-content 1fr;
+			grid-template-rows: 8.5vh 5vh min-content 1fr 25px;
+			grid-template-areas:
+				"header header header header"
+				".		banner banner ."
+				". 		camera info   ."
+				".		.	   .	  ."
+				"footer footer footer footer";
+			column-gap: 25px;
+			row-gap: 20px;
+		}
+
+		.header {
+			position: relative;
+			background-color: hsl(352,89%,47%);
+			color: hsl(0,0%,95%);
+			font-size: 1.35rem;
+			line-height: 8.5vh;
+			text-align: center;
+			grid-area: header;
+			overflow: hidden;
+
+			box-shadow: 0 0 10px rgba(0,0,0,.5);
+		}
+
+		.header-logo {
+			display: block;
+			position: absolute;
+			float: left;
+			background-color: hsl(0,0%,95%);
+			padding: 1rem .8rem .7rem 1rem;
+			box-sizing: border-box;
+			max-width: 100%;
+			max-height: 100%;
+
+			box-shadow: 0 0 1rem 1.1rem hsla(0,0%,95%,100%)
+		}
+
+		.footer {
+			position: relative;
+			background-color: hsl(0,0%,93.5%);
+			font-size: .7rem;
+			line-height: 25px;
+			text-align: right;
+			grid-area: footer;
+
+			box-shadow: 0 0 7px rgba(0,0,0,.5);
+		}
+
+		.footer-by {
+			display: block;
+			position: absolute;
+			padding-left: .5vw;
+			text-align: left;
+			width: 99.5vw;
+			height: 100%;
+		}
+
+		.footer-owner {
+			display: block;
+			position: absolute;
+			padding-right: .5vw;
+			text-align: right;
+			width: 99.5vw;
+			height: 100%;
+		}
+
+		.banner {
+			visibility: hidden;
+
+			background-color: hsl(60,80%,85%);
+			grid-area: banner;
+
+			box-shadow: 0 0 5px rgba(0,0,0,.5);
+		}
+
+		.camera {
+			background-color: hsl(0,0%,95%);
+			grid-area: camera;
+
+			box-shadow: 0 0 7px rgba(0,0,0,.5);
+		}
+
+		.info {
+			background-color: hsl(0,0%,95%);
+			grid-area: info;
+
+			box-shadow: 0 0 7px rgba(0,0,0,.5);
+		}
+
+		.title {
+			padding: 0.9rem 1.5rem;
+			color: hsl(352,83%,47%);
+			font-size: 1.3rem;
+			text-align: center;
+		}
+
+		.data-container {
+			padding: 1.5rem 1.5rem;
+			font-size: .96rem;
+		}
+
+		hr {
+			border-top-color: hsla(352,89%,47%,55%);
+			margin: 0 .9vw;
+		}
+
+		.video-container {
+			padding: .75rem 2.25rem;
+			text-align: center;
+		}
+
+		.canvas-border {
+			display: inline-block;
+			box-sizing: border-box;
+			width: 644px;
+			height: 484px;
+			padding: 2px;
+			box-shadow: 0 0 7px hsla(0,0%,65%,50%) inset;
+		}
+
+		.data-table {
+			border-spacing: 13px 5px;
+		}
+
+		.data-index {
+			font-size: 1rem;
+		}
+	</style>
+</head>
+<body onload="init()">
+    <div class="container">
+		<div class="header">
+			<image class="header-logo" src="/static/images/Logo-ZUYD-Data-Intelligence.svg"></image>
+			Minor AI: Emotion Detection
+		</div>
+		<div class="banner"></div>
+		<div class="camera">
+			<div class="title">Camera Feed</div>
+			<hr />
+			<div class="video-container">
+				<div class="canvas-border">
+					<canvas id="preview" width="640" height="480"></canvas>
+				</div>
+			</div>
+		</div>
+		<div class="info">
+			<div class="title">Predictions</div>
+			<hr class="info-divider" />
+			<div class="data-container">
+				<table class="data-table">
+					<tr>
+						<td class="data-index">Angry:</td>
+						<td id="data_angry">100%</td>
+					</tr>
+					<tr>
+						<td class="data-index">Disgust:</td>
+						<td id="data_disgust">100%</td>
+					</tr>
+					<tr>
+						<td class="data-index">Fear:</td>
+						<td id="data_fear">100%</td>
+					</tr>
+					<tr>
+						<td class="data-index">Happy</td>
+						<td id="data_happy">100%</td>
+					</tr>
+					<tr>
+						<td class="data-index">Neutral:</td>
+						<td id="data_neutral">100%</td>
+					</tr>
+					<tr>
+						<td class="data-index">Sad:</td>
+						<td id="data_sad">100%</td>
+					</tr>
+					<tr>
+						<td class="data-index">Surprised:</td>
+						<td id="data_surprise">100%</td>
+					</tr>
+				</table>
+			</div>
+		</div>
+		<div class="footer">
+			<div class="footer-by">By Dwayne Debets, Roald Janssen, Bryan Kroon and Gavin Melis</div>
+			<div class="footer-owner">Lectoraat Data Intellligence™</div>
+		</div>
+    </div>
+    <script>
+        const VID_WIDTH = 1280, VID_HEIGHT = 720;
+        const HIDDEN_CANVAS_WIDTH = 320, HIDDEN_CANVAS_CACHE_HEIGHT = 180;
+        // const HIDDEN_CANVAS_WIDTH = 640, HIDDEN_CANVAS_CACHE_HEIGHT = 360
+
+		let sock;
+        let video_origin, canvas_origin;
+
+		let has_recently_updated_data = false;
+		let PREDICTION_TIMEOUT = 500;
+
+        function init() {
+            // MEDIA WEBCAM CAPTURE
+            if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+                alert("Your browser doesn't seem to support the use of a webcam. Please use a more modern browser.");
+                return;
+            }
+
+            video_origin = document.createElement('video');
+            video_origin.id = 'video_origin';
+            video_origin.width = VID_WIDTH;
+            video_origin.height = VID_HEIGHT;
+
+            canvas_origin = document.createElement('canvas');
+            canvas_origin.width = HIDDEN_CANVAS_WIDTH;
+            canvas_origin.height = HIDDEN_CANVAS_CACHE_HEIGHT;
+
+            navigator.mediaDevices.getUserMedia({
+                    video: true
+                })
+                .then(stream => {
+                    video_origin.srcObject = stream;
+                    video_origin.onloadedmetadata = (e) => video_origin.play();
+                })
+                .catch(msg => console.log('Error: ' + msg));
+
+
+            // SOCKET.IO
+            sock = io.connect('http://' + document.domain + ':' + location.port);
+
+            sock.on('connect',
+                function() {
+                    console.log('Initialised SocketIO connection...');
+
+                    // START CAPTURE
+                    snap();
+                });
+
+            sock.on('disconnect',
+                function() {
+                    console.log('Terminated SocketIO connection.');
+                });
+
+			sock.on('update-data', (data) =>
+				{
+					console.log(data);
+
+					if (!has_recently_updated_data) {
+						has_recently_updated_data = true;
+
+						data.forEach(face => {
+							face.forEach(emotion => {
+								prediction_text = (emotion[1]*100).toFixed(2) + '%';
+
+								switch (emotion[0]) {
+									case 'angry':
+										data_angry.innerText = prediction_text;
+										break;
+									case 'disgust':
+										data_disgust.innerText = prediction_text;
+										break;
+									case 'fear':
+										data_fear.innerText = prediction_text;
+										break;
+									case 'happy':
+										data_happy.innerText = prediction_text;
+										break;
+									case 'neutral':
+										data_neutral.innerText = prediction_text;
+										break;
+									case 'sad':
+										data_sad.innerText = prediction_text;
+										break;
+									case 'surprise':
+										data_surprise.innerText = prediction_text;
+										break;
+								}
+							});
+						});
+
+						setTimeout(function () {
+							has_recently_updated_data = false;
+						}, PREDICTION_TIMEOUT)
+					}
+				});
+        }
+
+        // CAPTURE AND MANIPULATE WEBCAM FEED
+        const snap = () => {
+            canvas_origin.getContext('2d').drawImage(video_origin, 0, 0, canvas_origin.width, canvas_origin.height);
+            canvas_origin.toBlob((blob) => {
+                sock.emit('process-image', blob, (data) => {
+                    let imgData = new Blob([data], {type: 'image/jpg'})
+                    let img = new Image()
+                    img.onload = () => preview.getContext('2d').drawImage(img, 0, 0, preview.width, preview.height);
+                    img.src = URL.createObjectURL(imgData)
+                    snap()
+                });
+            });
+        }
+    </script>
+</body>
+</html>
