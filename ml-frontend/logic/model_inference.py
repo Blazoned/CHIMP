@@ -1,27 +1,34 @@
-import tensorflow as tf
-from tensorflow.keras.models import model_from_json
-from tensorflow.python.keras.backend import set_session
+from os import environ
 
 import numpy as np
-
-
-config = tf.compat.v1.ConfigProto()
-session = tf.compat.v1.Session(config=config)
+import requests
 
 
 class FacialExpressionModel:
     EMOTIONS = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
 
-    def __init__(self, model_network_file: str, model_weights_file: str):
-        with open(model_network_file, 'r') as f:
-            json_model = f.read()
-            self._model = model_from_json(json_model)
-            self._model.load_weights(model_weights_file)
+    def __init__(self):
+        pass
 
-    def predict(self, img):
-        global session
-        set_session(session)
+    def predict(self, image):
+        # Reshape input, and preprocess pixel to value between 0 and 1
+        image = np.array(image).reshape((-1, 48, 48, 1)) / 255
 
-        preds = self._model.predict(img)
-        results = sorted(zip(FacialExpressionModel.EMOTIONS, np.array(preds).tolist()[0]), key=lambda item: item[1], reverse=True)
-        return results
+        # Post image to inference server
+        url = environ['MODEL_INFERENCE_URL'] + '?stage=staging'     # TODO: Simulate blue-green testing
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        json_data = {
+            'inputs': image.tolist()
+        }
+        response = requests.request('POST', headers=headers, url=url, json=json_data)
+
+        # Unpack and return response ordered from most to least likely emotion
+        if response.status_code == 200:
+            preds = []  # TODO: Test inference via inference server
+            class_responses = zip(FacialExpressionModel.EMOTIONS, preds)
+            return sorted(class_responses, key=lambda item: item[1], reverse=True)
+
+        # Return empty list if no response was found
+        return []

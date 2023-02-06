@@ -30,7 +30,7 @@ class ImageProcessor:
 
         grey_frame = cv2.cvtColor(self.image, cv2.COLOR_RGBA2GRAY)
         faces = self.face_cascade.detectMultiScale(grey_frame, 1.3, 5)
-        for (x, y, width, height) in faces:
+        for (x, y, width, height) in faces:     # TODO: Enable prediction
             # face = cv2.resize(grey_frame[y:y+height, x:x+width], (48, 48))
             # preds = self.model.predict(face[np.newaxis, :, :, np.newaxis])
             # self.predictions.append(preds)
