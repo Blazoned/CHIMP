@@ -1,11 +1,14 @@
 from os import environ
 import logging
 
-from flask_socketio import SocketIO, send, emit
-from flask import Flask, render_template, request
+from flask_socketio import SocketIO, emit
+from flask import request
+
+from logic.image_processor import ImageProcessor
 
 
 _logger = logging.getLogger(environ.get('logger-name', 'chimp-ml-frontend'))
+
 
 def _on_connect():
     _logger.debug(f'Web client connected: {request.sid}')
@@ -16,7 +19,13 @@ def _on_disconnect():
 
 
 def _process_image(blob):
-    return blob
+    # TODO: cache an image processor per client sid (use connect & disconnect)
+    img_processor = ImageProcessor().load_image(blob)
+    img_processor.process()
+
+    emit('update-data', img_processor.predictions)
+
+    return img_processor.get_image_blob()
 
 
 def add_as_websocket_handler(socket_io: SocketIO):
@@ -26,4 +35,4 @@ def add_as_websocket_handler(socket_io: SocketIO):
     _on_disconnect = socket_io.on('disconnect')(_on_disconnect)
     _process_image = socket_io.on('process-image')(_process_image)
 
-    return _on_connect
+    return socket_io
