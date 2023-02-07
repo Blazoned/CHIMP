@@ -6,7 +6,7 @@ from flask import request
 
 from logic.image_processor import ImageProcessor
 
-INFERENCE_INTERVAL = 1
+INFERENCE_INTERVAL = 0
 
 _logger = logging.getLogger(environ.get('logger-name', 'chimp-ml-frontend'))
 _image_processors: dict = {}
