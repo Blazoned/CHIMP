@@ -60,8 +60,8 @@ class ImageProcessor:
                 self._inference_thread = Thread(target=execute_inference, daemon=True)
                 self._inference_thread.start()
 
-            if index >= len(self._predictions):
-                return
+            if index not in self._predictions:
+                continue
 
             # For the current face, highlight it with a rectangle and write the most likely emotion above their face
             cv2.putText(self.image, self._predictions[index][0][0], (x, y-10), self.font, .85, (47, 47, 255), 2)

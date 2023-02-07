@@ -1,5 +1,6 @@
 from os import environ
 
+from random import random
 import numpy as np
 import requests
 from json import loads
@@ -9,14 +10,15 @@ class FacialEmotionInference:
     EMOTIONS = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
 
     def __init__(self):
-        pass
+        # Simulate blue-green test; proper implementation would have validation for blue-green test
+        self.stage = 'production' if random() < .9 else 'staging'
 
     def predict(self, image):
         # Reshape input, and preprocess pixel to value between 0 and 1
         image = np.array(image).reshape((-1, 48, 48, 1)) / 255
 
         # Post image to inference server
-        url = environ['MODEL_INFERENCE_URL'] + '?stage=staging'     # TODO: Simulate blue-green testing
+        url = environ['MODEL_INFERENCE_URL'] + f'?stage={self.stage}'
         headers = {
             'Content-Type': 'application/json'
         }

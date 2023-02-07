@@ -27,7 +27,6 @@ def _on_disconnect():
 
 
 def _process_image(image_blob):
-    # TODO: only trigger inferences once per second (or 5 seconds), then reuse same results (no lag)
     img_processor = _image_processors.get(request.sid, ImageProcessor(INFERENCE_INTERVAL))
     img_processor.load_image(image_blob)
     img_processor.process()
