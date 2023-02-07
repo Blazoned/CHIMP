@@ -20,6 +20,7 @@ def _on_disconnect():
 
 def _process_image(blob):
     # TODO: cache an image processor per client sid (use connect & disconnect)
+    # TODO: only trigger inferences once per second (or 5 seconds), then reuse same results (no lag)
     img_processor = ImageProcessor().load_image(blob)
     img_processor.process()
 

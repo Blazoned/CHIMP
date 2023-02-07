@@ -2,9 +2,10 @@ from os import environ
 
 import numpy as np
 import requests
+from json import loads
 
 
-class FacialExpressionModel:
+class FacialEmotionInference:
     EMOTIONS = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
 
     def __init__(self):
@@ -26,9 +27,10 @@ class FacialExpressionModel:
 
         # Unpack and return response ordered from most to least likely emotion
         if response.status_code == 200:
-            preds = []  # TODO: Test inference via inference server
-            class_responses = zip(FacialExpressionModel.EMOTIONS, preds)
+            text_response = loads(response.text)
+            predictions = list(text_response['predictions'].values())[0][0]  # Unpack response into list of predictions
+            class_responses = zip(self.EMOTIONS, predictions)
             return sorted(class_responses, key=lambda item: item[1], reverse=True)
 
         # Return empty list if no response was found
-        return []
+        return [[]]

@@ -17,7 +17,7 @@ def configure_logging(app):
 def _create_module_logger():
     logger = logging.getLogger(environ.get('logger-name', 'chimp-ml-frontend'))
 
-    formatter = logging.Formatter(fmt='[%(levelname)s - %(asctime)s] %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p')
+    formatter = logging.Formatter(fmt='[%(levelname)s] %(asctime)s - %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p')
     logger.addHandler(_get_stdout_handler(formatter))
     logger.addHandler(_get_file_handler(formatter))
 
