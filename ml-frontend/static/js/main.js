@@ -92,6 +92,11 @@ function init() {
                 }, PREDICTION_TIMEOUT)
             }
         });
+
+    // Disconnect before closing the window
+    window.onunload = function() {
+        sock.disconnect()
+    }
 }
 
 // CAPTURE AND MANIPULATE WEBCAM FEED

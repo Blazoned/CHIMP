@@ -8,20 +8,27 @@ from logic.image_processor import ImageProcessor
 
 
 _logger = logging.getLogger(environ.get('logger-name', 'chimp-ml-frontend'))
+_image_processors: dict = {}
 
 
 def _on_connect():
     _logger.debug(f'Web client connected: {request.sid}')
+    _image_processors[request.sid] = ImageProcessor()
 
 
 def _on_disconnect():
     _logger.debug(f'Web client disconnected: {request.sid}')
 
+    # Note: has a vulnerability in which by not explicitly disconnecting from other side of the socket, more image
+    #           processors keep getting cached
+    if request.sid in _image_processors:
+        del _image_processors[request.sid]
 
-def _process_image(blob):
-    # TODO: cache an image processor per client sid (use connect & disconnect)
+
+def _process_image(image_blob):
     # TODO: only trigger inferences once per second (or 5 seconds), then reuse same results (no lag)
-    img_processor = ImageProcessor().load_image(blob)
+    img_processor = _image_processors.get(request.sid, ImageProcessor())
+    img_processor.load_image(image_blob)
     img_processor.process()
 
     emit('update-data', img_processor.predictions)
