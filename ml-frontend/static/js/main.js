@@ -58,6 +58,10 @@ function init() {
                 has_recently_updated_data = true;
 
                 data.forEach(face => {
+                    // !! NOTE: Remove the line below to display the information of the last face instead.
+                    // !! TODO: Create a multi-face information display
+                    face = data[0]
+
                     face.forEach(emotion => {
                         prediction_text = (emotion[1]*100).toFixed(2) + '%';
 

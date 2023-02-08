@@ -3,6 +3,7 @@ from os import environ
 from random import random
 import numpy as np
 import requests
+from requests.exceptions import ConnectionError
 from json import loads
 
 
@@ -25,14 +26,22 @@ class FacialEmotionInference:
         json_data = {
             'inputs': image.tolist()
         }
-        response = requests.request('POST', headers=headers, url=url, json=json_data)
+        try:
+            response = requests.request('POST', headers=headers, url=url, json=json_data)
 
-        # Unpack and return response ordered from most to least likely emotion
-        if response.status_code == 200:
-            text_response = loads(response.text)
-            predictions = list(text_response['predictions'].values())[0][0]  # Unpack response into list of predictions
-            class_responses = zip(self.EMOTIONS, predictions)
-            return sorted(class_responses, key=lambda item: item[1], reverse=True)
+            # Unpack and return response ordered from most to least likely emotion
+            if response.status_code == 200:
+                text_response = loads(response.text)
+                predictions = list(text_response['predictions'].values())[0][
+                    0]  # Unpack response into list of predictions
+                class_responses = zip(self.EMOTIONS, predictions)
+                return sorted(class_responses, key=lambda item: item[1], reverse=True)
+        except ConnectionError:
+            # Not possible to connect to inference server
+            return [('', 0.0)]
+        except TypeError:
+            # Inference server did not have a model loaded, equipped to handle the request
+            return [('', 0.0)]
 
         # Return empty list if no response was found
-        return [[]]
+        return [('', 0.0)]
