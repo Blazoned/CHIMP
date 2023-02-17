@@ -11,6 +11,7 @@ class InferenceManager:
     do_keep_updating: bool = True   # No way to stop updating except for exiting the application. Can be implemented tho
     _update_interval: int
     _models: dict[str, mlflow.PyFuncModel]
+    _DEFAULT_RESPONSE: dict[str, list[tuple]] = {'node_007': [('', 0.0)]}
 
     def __init__(self, model_update_interval: int = 60):
         self._models = {}
@@ -23,11 +24,17 @@ class InferenceManager:
         self._update_thread.start()
 
     def infer_from_global_model(self, data: dict, model_stage: str = 'production'):
+        if not ('staging' in self._models and 'production' in self._models):
+            return self._DEFAULT_RESPONSE
+
         # If specified model stage for the model to load is staging, keep it staging. If not, default to production.
         model = self._models['staging'] if model_stage.lower() == 'staging' else self._models['production']
         return self._infer_from_model(model, data)
 
     def infer_from_calibrated_model(self, model_id: str, data: dict):
+        if model_id not in self._models:
+            return self._DEFAULT_RESPONSE
+
         # TODO: Add model handling for calibrated models. Is currently disabled via the flask endpoint.
         model = self._models[f'{model_id}']
         return self._infer_from_model(model, data)
