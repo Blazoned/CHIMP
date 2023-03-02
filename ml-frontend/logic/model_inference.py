@@ -8,6 +8,7 @@ from json import loads
 
 
 class FacialEmotionInference:
+    # TODO: Get emotions from tracking server. Added emotion list as parameters to the model.
     EMOTIONS = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
 
     def __init__(self):
