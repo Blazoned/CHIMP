@@ -34,7 +34,7 @@ class ImageProcessor:
 
         return self
 
-    def process(self):
+    def process(self, user_id: str = ''):
         if self.is_processed:
             return
 
@@ -51,7 +51,7 @@ class ImageProcessor:
             if do_new_inference_call:
                 def execute_inference():
                     face = cv2.resize(grey_frame[y:y+height, x:x+width], (48, 48))
-                    prediction = self.emotion_inference.predict(face)
+                    prediction = self.emotion_inference.predict(face, user_id)
                     self._predictions[index] = prediction
 
                     # Set inference call time to current time

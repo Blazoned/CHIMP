@@ -1,6 +1,5 @@
 # from experimentation import BasicPipeline, DataProcessorABC, ModelGeneratorABC, ModelPublisherABC
 
-
 def main():
     from os import path
     import numpy as np
@@ -41,4 +40,18 @@ def main():
 
 
 if __name__ == '__main__':
+    # import os
+    # import mlflow
+    #
+    # os.environ['AWS_ACCESS_KEY_ID'] = 'admin'
+    # os.environ['AWS_SECRET_ACCESS_KEY'] = 'password'
+    # os.environ['MLFLOW_TRACKING_URI'] = 'http://blazoned.nl:8999'
+    # os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://blazoned.nl:9000'
+    # os.environ['MODEL_NAME'] = 'onnx emotion model'
+    #
+    # calibrated_model = mlflow.search_runs(experiment_names=['ONNX Emotion Recognition'],
+    #                                       filter_string='run_name = "v0.0.0"').iloc[0]
+    # model_run_id = calibrated_model.loc['run_id']
+    # loaded_model = mlflow.pyfunc.load_model(f'runs:/{model_run_id}/model')
+    # print(model_run_id)
     main()

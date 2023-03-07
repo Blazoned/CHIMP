@@ -1,10 +1,15 @@
 import os
 
+from flask_cors import CORS
 from flask import Flask, abort
+
 from request_handlers import health_handler, experimentation_handler
 import logging
 
+
 app = Flask(__name__)
+CORS(app)
+
 app = health_handler.add_as_route_handler(app)
 app = experimentation_handler.add_as_route_handler(app)
 
