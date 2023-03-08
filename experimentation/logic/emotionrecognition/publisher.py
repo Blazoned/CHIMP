@@ -4,7 +4,7 @@
 * Publishing models"""
 
 from logic.publisher import ModelPublisherABC
-from __utilities import save_data_object, split_data
+from logic.emotionrecognition.__utilities import save_data_object, split_data
 
 from os import path
 import heapq

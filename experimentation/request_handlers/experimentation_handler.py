@@ -1,13 +1,61 @@
 from os import path, getcwd, makedirs
+from threading import Thread
 from zipfile import ZipFile
+import json
 
 from flask import Response, request, abort, jsonify
 from werkzeug.utils import secure_filename
 
+from logic.emotionrecognition.pipelines import build_emotion_recognition_pipeline
+
 
 # region Training
+PRINT_TENSORFLOW_INFO = True
+
+
+class TrainingPipelineSingleton:
+    _is_training: bool = False
+    _thread = None
+    pipeline = None
+
+    def invoke(self):
+        if self.pipeline is None:
+            self._load_pipeline()
+
+        if not self._is_training:
+            self._thread = Thread(target=self._invoke_async, daemon=True)
+            self._thread.start()
+
+    def _load_pipeline(self):
+        with open(path.join(getcwd(), 'config.json'), 'r') as f:
+            self.pipeline = build_emotion_recognition_pipeline(config=json.load(f))
+
+    def _invoke_async(self):
+        self._is_training = True
+
+        if PRINT_TENSORFLOW_INFO:
+            self._print_tensorflow_info()
+        self.pipeline.run()
+
+        self._is_training = False
+
+    @staticmethod
+    def _print_tensorflow_info():
+        import tensorflow as tf
+
+        print("Version of Tensorflow: ", tf.__version__)
+        print("Cuda Availability: ", tf.test.is_built_with_cuda())
+        print("GPU  Availability: ", tf.config.list_physical_devices('GPU'))
+        print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+
+
+_training_pipeline = TrainingPipelineSingleton()
+
+
 def _train_model():
-    # TODO: CALL TRAINING
+    # Make asynchronous pipeline call
+    _training_pipeline.invoke()
+
     return Response(response='Pong!', status=200)
 # endregion
 

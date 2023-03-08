@@ -1,20 +1,16 @@
-"""This module contains different machine learning experimentation pipelines, each based on the use of all three
-pipeline components:
+"""This module contains different machine learning experimentation pipelines for emotion recognition, each based on the
+individual component needs for data processing (:class:`logic.data.DataProcessorABC`), model generation
+(:class:`logic.model.ModelGeneratorABC`) and model publishing (:class:`logic.publisher.ModelPublisherABC`):
 
-* DataProcessorABC
-* ModelGeneratorABC
-* ModelPublisherABC"""
-
-import json
-from dotenv import load_dotenv
+* DataProcessorABC -> :class:`EmotionDataProcessor`, :class:`MLFlowEmotionDataProcessor`,
+* ModelGeneratorABC -> :class:`EmotionModelGenerator`, :class:`MLFlowEmotionModelGenerator`,
+* ModelPublisherABC -> :class:`EmotionModelPublisher`, :class:`MLFlowEmotionModelPublisher`,"""
 
 from logic.pipeline import BasicPipeline, MLFlowPipeline
 
-from data import EmotionDataProcessor, MLFlowEmotionDataProcessor
-from model import EmotionModelGenerator, MLFlowEmotionModelGenerator
-from publisher import EmotionModelPublisher, MLFlowEmotionModelPublisher
-
-import tensorflow as tf
+from logic.emotionrecognition.data import EmotionDataProcessor, MLFlowEmotionDataProcessor
+from logic.emotionrecognition.model import EmotionModelGenerator, MLFlowEmotionModelGenerator
+from logic.emotionrecognition.publisher import EmotionModelPublisher, MLFlowEmotionModelPublisher
 
 
 def build_emotion_recognition_pipeline(config: dict, do_calibrate_base_model: bool = False):
@@ -37,25 +33,3 @@ def build_emotion_recognition_pipeline(config: dict, do_calibrate_base_model: bo
     else:
         return BasicPipeline(config=config, data_processor=EmotionDataProcessor,
                              model_generator=EmotionModelGenerator, model_publisher=EmotionModelPublisher)
-
-
-def main():
-    # Load configuration from file
-    with open('config.json', 'r') as f:
-        config = json.load(f)
-
-    # Load secrets from environment variables
-    if config['use_mlflow']:
-        load_dotenv()
-
-    pipeline = build_emotion_recognition_pipeline(config=config)
-    pipeline.run()
-
-
-if __name__ == '__main__':
-    print("Version of Tensorflow: ", tf.__version__)
-    print("Cuda Availability: ", tf.test.is_built_with_cuda())
-    print("GPU  Availability: ", tf.config.list_physical_devices('GPU'))
-    print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-
-    main()

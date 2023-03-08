@@ -9,9 +9,9 @@ pipeline components:
 from __future__ import annotations
 from typing import Type, Union, Any
 
-from data import DataProcessorABC
-from model import ModelGeneratorABC
-from publisher import ModelPublisherABC
+from logic.data import DataProcessorABC
+from logic.model import ModelGeneratorABC
+from logic.publisher import ModelPublisherABC
 
 import pandas as pd
 

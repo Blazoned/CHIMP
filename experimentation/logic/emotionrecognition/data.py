@@ -5,7 +5,7 @@
 * Selecting and process data features"""
 
 from logic.data import DataProcessorABC
-from __utilities import save_data_object
+from logic.emotionrecognition.__utilities import save_data_object
 
 from os import path, listdir
 

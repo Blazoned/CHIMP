@@ -7,7 +7,7 @@ from typing import Union
 from collections import Counter
 
 from logic.model import ModelGeneratorABC
-from __utilities import save_data_object, split_data
+from logic.emotionrecognition.__utilities import save_data_object, split_data
 
 import pandas as pd
 from numpy.random import RandomState
@@ -228,7 +228,7 @@ class EmotionModelGenerator(ModelGeneratorABC):
                            experiment_name=self._config['experiment_name'],
                            x_val=self.validation_data['image_data'], y_val=self.validation_data['class_'],
                            seed=self._config['random_seed'], random_method=self._config['random_method'],
-                           fraction_limit=self._config['random_method_fraction'])
+                           fraction_limit=self._config['random_method_fraction'], )
 
         self._config['is_invoked_by_talos'] = False
 
@@ -277,7 +277,6 @@ class MLFlowEmotionModelGenerator(EmotionModelGenerator):
         #   Information on parameters like network architecture is provided by Talos, but not directly readable from the
         #   training history or model itself without analysing the model using code.
         return super(MLFlowEmotionModelGenerator, self)._generate()
-
 
     def _validate(self):
         """
@@ -342,5 +341,3 @@ class MLFlowEmotionModelGenerator(EmotionModelGenerator):
                           registered_model_name=self._config['model_name'])
 
         return result
-
-
