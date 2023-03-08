@@ -12,7 +12,7 @@
     "experiment_name": "ONNX Emotion Recognition",
     "use_talos_automl": true,
     "random_method": "latin_sudoku",
-    "random_method_fraction": 0.0025,
+    "random_method_fraction": 0.0005,
     "categories": [
         "angry",
         "disgust",

@@ -1,6 +1,12 @@
+"""This module contains all helper classes, interfaces and methods that assist a pipeline object in:
+
+* Testing models
+* Publishing models"""
+
 from logic.publisher import ModelPublisherABC
 from __utilities import save_data_object, split_data
 
+from os import path
 import heapq
 
 from numpy.random import RandomState
@@ -112,11 +118,12 @@ class EmotionModelPublisher(ModelPublisherABC):
                                       key=lambda model: model[evaluation_metric])
 
         # Save all best models
-        input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+        if path.exists(self._config["publish_directory"]):
+            input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
 
-        for i in range(len(best_models)):
-            onnx_model, _ = tf2onnx.convert.from_keras(best_models[i]['model'], input_sig, opset=13)
-            onnx.save(onnx_model, f'{self._config["publish_directory"]}/model-{i+1}.onnx')
+            for i in range(len(best_models)):
+                onnx_model, _ = tf2onnx.convert.from_keras(best_models[i]['model'], input_sig, opset=13)
+                onnx.save(onnx_model, f'{self._config["publish_directory"]}/model-{i+1}.onnx')
 
         return best_models
 
@@ -235,26 +242,27 @@ class MLFlowEmotionModelPublisher(EmotionModelPublisher):
         new_model_info = log_model(onnx_model=onnx_model, artifact_path='model',
                                    registered_model_name=self._config['model_name'])
 
-        # Put best model in staging
-        # Get staged and production model info
-        model_uri = f'models:/{self._config["model_name"]}/'
-
-        curr_staging_model_info = get_model_info(model_uri + 'Staging')
-        curr_production_model_info = get_model_info(model_uri + 'Production')
+        # Put best model in staging, and current model in staging into production
 
         # Archive production model and promote staging model to production model
         # (TODO: quality measure to only update if better??)
         client = MlflowClient()
 
-        model_uri = curr_staging_model_info.model_uri
-        model_version_info = client.search_model_versions(f"'run_id' = '{model_uri}'")[0]
+        try:
+            curr_staging_model_info = get_model_info(f'models:/{self._config["model_name"]}/Staging')
+            model_run_id = curr_staging_model_info.run_id
+            model_version_info = client.search_model_versions(f"run_id = '{model_run_id}'")[0]
 
-        client.transition_model_version_stage(self._config['model_name'], model_version_info.version,
-                                              stage='production', archive_existing_versions=True)
+            client.transition_model_version_stage(self._config['model_name'], model_version_info.version,
+                                                  stage='production', archive_existing_versions=True)
+        except Exception:
+            # Generic exception handling. Bad practice, but could not find the exception thrown when client has couldn't
+            #   return model data
+            pass
 
         # Promote new model to staging model
-        model_uri = new_model_info.model_uri
-        model_version_info = client.search_model_versions(f"'run_id' = '{model_uri}'")[0]
+        model_run_id = new_model_info.run_id
+        model_version_info = client.search_model_versions(f"run_id = '{model_run_id}'")[0]
 
         client.transition_model_version_stage(self._config['model_name'], model_version_info.version,
                                               stage='staging', archive_existing_versions=False)

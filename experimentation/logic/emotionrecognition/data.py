@@ -1,3 +1,9 @@
+"""This module contains all helper classes, interfaces and methods that assist a pipeline object in:
+
+* Loading data
+* Processing (new) data
+* Selecting and process data features"""
+
 from logic.data import DataProcessorABC
 from __utilities import save_data_object
 

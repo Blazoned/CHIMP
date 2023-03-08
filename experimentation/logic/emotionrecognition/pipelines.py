@@ -1,3 +1,10 @@
+"""This module contains different machine learning experimentation pipelines, each based on the use of all three
+pipeline components:
+
+* DataProcessorABC
+* ModelGeneratorABC
+* ModelPublisherABC"""
+
 import json
 from dotenv import load_dotenv
 
@@ -10,7 +17,7 @@ from publisher import EmotionModelPublisher, MLFlowEmotionModelPublisher
 import tensorflow as tf
 
 
-def build_emotion_recognition_pipeline(config: dict, do_calibrate_base_model:bool = False):
+def build_emotion_recognition_pipeline(config: dict, do_calibrate_base_model: bool = False):
     """
     Build a validated emotion recognition pipeline. If 'do_calibrate_base_model' is set to True, instead of the base
     pipeline a calibration pipeline will be returned.

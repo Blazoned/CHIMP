@@ -1,3 +1,8 @@
+"""This module contains all helper classes, interfaces and methods that assist a pipeline object in:
+
+* Generating models
+* Validating models"""
+
 from typing import Union
 from collections import Counter
 
@@ -267,17 +272,11 @@ class MLFlowEmotionModelGenerator(EmotionModelGenerator):
         save_data_object(self.train_data, artifact_path='data/training')
         save_data_object(self.validation_data, artifact_path='data/validation')
 
-    # TODO: !!!Replace _validate() with _generate() and save _during_ hyperparameter optimisation.
-
     def _generate(self):
-        x = super(MLFlowEmotionModelGenerator, self)._generate()
-
-        if type(x) == type(tuple):
-            print('tuub')
-        if type(x) == type(list):
-            print('lull')
-
-        return x
+        # Intended to log in _generate(). Cannot replace logging in _validate() with logging in _generate():
+        #   Information on parameters like network architecture is provided by Talos, but not directly readable from the
+        #   training history or model itself without analysing the model using code.
+        return super(MLFlowEmotionModelGenerator, self)._generate()
 
 
     def _validate(self):
