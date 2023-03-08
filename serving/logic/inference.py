@@ -3,18 +3,20 @@ import time
 from threading import Thread
 
 import numpy as np
-from mlflow import pyfunc as mlflow
+from mlflow import pyfunc as mlflow_pyfunc, search_runs as mlflow_search_runs
 from onnxruntime.capi.onnxruntime_pybind11_state import InvalidArgument
 
 
 class InferenceManager:
     do_keep_updating: bool = True   # No way to stop updating except for exiting the application. Can be implemented tho
     _update_interval: int
-    _models: dict[str, mlflow.PyFuncModel]
+    _models: dict[str, mlflow_pyfunc.PyFuncModel]
+    _calibrated_model_retrieval_list: list[str]
     _DEFAULT_RESPONSE: dict[str, list[tuple]] = {'node_007': [('', 0.0)]}
 
     def __init__(self, model_update_interval: int = 60):
         self._models = {}
+        self._calibrated_model_retrieval_list = []
         # TODO: Replace threat update with update triggered via endpoint call to flask api, triggered from the
         #  experimentation python module (use secret key if spam protection is required, or implement time-out on
         #  end-point call in serving.)
@@ -32,15 +34,24 @@ class InferenceManager:
         return self._infer_from_model(model, data)
 
     def infer_from_calibrated_model(self, model_id: str, data: dict):
+        # If model id isn't loaded, create a thread and load model
+        #   into memory. Use global inference until model is loaded.
         if model_id not in self._models:
-            return self._DEFAULT_RESPONSE
+            # Invoke model update on separate thread if not already invoked
+            if model_id not in self._calibrated_model_retrieval_list:
+                self._calibrated_model_retrieval_list.append(model_id)
+                calibrated_model_retrieval = Thread(target=self._get_calibrated_model, args=[model_id], daemon=True)
+                calibrated_model_retrieval.start()
 
-        # TODO: Add model handling for calibrated models. Is currently disabled via the flask endpoint.
+            # Get inference from global model currently in production
+            return self.infer_from_global_model(data=data)
+
+        # Get loaded model from the model list
         model = self._models[f'{model_id}']
         return self._infer_from_model(model, data)
 
     @staticmethod
-    def _infer_from_model(model: mlflow.PyFuncModel, data: dict):
+    def _infer_from_model(model: mlflow_pyfunc.PyFuncModel, data: dict):
         inputs = data.get('inputs')
         if type(inputs) is not list:
             raise TypeError('Cannot convert given input to multidimensional numpy array')
@@ -56,9 +67,22 @@ class InferenceManager:
     def _update_global_models(self):
         while self.do_keep_updating:
             try:
-                self._models['staging'] = mlflow.load_model(f'models:/{os.getenv("MODEL_NAME")}/Staging')
-                self._models['production'] = mlflow.load_model(f'models:/{os.getenv("MODEL_NAME")}/Production')
+                self._models['staging'] = mlflow_pyfunc.load_model(f'models:/{os.getenv("MODEL_NAME")}/Staging')
+                self._models['production'] = mlflow_pyfunc.load_model(f'models:/{os.getenv("MODEL_NAME")}/Production')
             except Exception:  # If no model is available, do not update any further, wait and try again later.
                 pass
 
             time.sleep(self._update_interval)
+
+    def _get_calibrated_model(self, model_id: str):
+        # Search for calibrated model in mlflow runs
+        calibrated_model = mlflow_search_runs(experiment_names=['ONNX Emotion Recognition'],
+                                              filter_string=f'run_name = "{model_id}"')
+
+        # If model has been found, load the model from its model run uri and add it to the model cache
+        if len(calibrated_model) != 0:
+            model_run_id = calibrated_model.iloc[0].loc['run_id']
+            self._models[model_id] = mlflow_pyfunc.load_model(f'runs:/{model_run_id}/model')
+
+        # Mark model retrieval as being finished
+        self._calibrated_model_retrieval_list.remove(model_id)

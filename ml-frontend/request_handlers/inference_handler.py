@@ -29,7 +29,7 @@ def _on_disconnect():
 def _process_image(image_blob):
     img_processor = _image_processors.get(request.sid, ImageProcessor(INFERENCE_INTERVAL))
     img_processor.load_image(image_blob)
-    img_processor.process()
+    img_processor.process(request.sid)
 
     emit('update-data', img_processor.predictions)
 
