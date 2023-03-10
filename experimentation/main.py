@@ -28,14 +28,9 @@ def main():
     # Currently functioning as a webapi to build models, or to update existing models upon request. Endpoint variables
     #   for MLFlow are defined by environment variable.
     #   endpoint defined in environment variables.
-
-    load_dotenv()
-
-    from os import environ
-    print(environ)
-
     app.run(host='0.0.0.0', port=7500)
 
 
 if __name__ == '__main__':
+    load_dotenv()
     main()

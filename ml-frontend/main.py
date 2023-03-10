@@ -1,4 +1,4 @@
-from os import environ
+from dotenv import load_dotenv
 
 from flask_socketio import SocketIO
 from flask import Flask, render_template
@@ -26,5 +26,5 @@ def get_app():
 
 
 if __name__ == '__main__':
-    environ['MODEL_INFERENCE_URL'] = 'http://localhost:8500/invocations'
+    load_dotenv()
     get_app()
