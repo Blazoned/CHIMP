@@ -8,17 +8,18 @@ from logic.emotionrecognition.__utilities import save_data_object, split_data
 
 from os import path
 import heapq
+from tempfile import TemporaryDirectory
 
 from numpy.random import RandomState
 
 import tensorflow as tf
-from tensorflow.keras.models import model_from_json
+from tensorflow.keras.models import model_from_json, save_model as tf_save_model, load_model as tf_load_model
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow_addons.metrics import F1Score
 
 import onnx
 import tf2onnx
-from mlflow import MlflowClient, start_run, log_param, log_metric, log_figure
+from mlflow import MlflowClient, start_run, log_param, log_metric, log_artifacts
 from mlflow.onnx import log_model
 from mlflow.models import get_model_info
 
@@ -230,9 +231,9 @@ class MLFlowEmotionModelPublisher(EmotionModelPublisher):
 
         # Record metrics for best model
         log_metric('duration', best_model_info['duration'])
-        log_metric('loss', best_model_entry['loss'])
-        log_metric('accuracy', best_model_entry['accuracy'])
-        log_metric('f1_score', best_model_entry['f1_score'])
+        log_metric('test_loss', best_model_entry['loss'])
+        log_metric('test_accuracy', best_model_entry['accuracy'])
+        log_metric('test_f1_score', best_model_entry['f1_score'])
 
         #   Transform best model to onnx and record model
         input_sig = [
@@ -241,6 +242,12 @@ class MLFlowEmotionModelPublisher(EmotionModelPublisher):
 
         new_model_info = log_model(onnx_model=onnx_model, artifact_path='model',
                                    registered_model_name=self._config['model_name'])
+
+        # Upload best tensorflow version using temporary directory as artifact
+        #   Note: Important for calibration purposes. (assets folder does not get uploaded, as it is empty)
+        with TemporaryDirectory() as tmpdir:
+            tf_save_model(best_model, tmpdir)
+            log_artifacts(tmpdir, 'tensorflow')
 
         # Put best model in staging, and current model in staging into production
 
@@ -268,3 +275,86 @@ class MLFlowEmotionModelPublisher(EmotionModelPublisher):
                                               stage='staging', archive_existing_versions=False)
 
         return best_models
+
+
+class EmotionCalibrationModelPublisher(ModelPublisherABC):
+    """
+    A custom model publisher unit for emotion recognition models for model calibration.
+
+    ...
+
+    Implements the three parent methods '_test_models()' and '_publish_models()' to publish calibrated convolutional
+    neural networks (cnn) to mlflow for user specific use-cases.
+
+    Attributes
+    ----------
+    test_data:
+        used to store the test data used for testing the calibrated cnn.
+
+    _config: dict
+        the configuration variables passed down from the pipeline. For use in custom implementation of this component to
+        dynamically adapt the model publisher to the needs of the pipeline.
+
+    Methods
+    -------
+    _test_models() -> list[]
+        Get n-best models according model generator and test those models using the remainder of the unseen data.
+    _publish_models() -> list[]
+        Publish n-best models based on the evaluation test of the selected models. Models will be saved as an
+        onnx-model.
+    """
+
+    test_data = None
+
+    def _test_models(self):
+        """
+        Test those models using the reserved test data.
+
+        :return: Returns the results of the model.
+        """
+
+        # Set test data
+        def get_data_partition(dataset, start, stop):
+            return {
+                'image_data': dataset['image_data'][start:stop],
+                'class_': dataset['class_'][start:stop],
+                'category': dataset['category'][start:stop]
+            }
+
+        partition_splits = self._config['calibration_data_entries']
+        self.test_data = get_data_partition(self._data, partition_splits[2], partition_splits[3])
+
+        # Evaluate model
+        model = self.models[0]
+        loss, acc, f1_score = model.evaluate(self.test_data['image_data'], self.test_data['class_'])
+
+        # Log metrics to mlflow
+        log_metric('test_loss', loss)
+        log_metric('test_accuracy', acc)
+        log_metric('test_f1_score', f1_score)
+
+        return model,
+
+    def _publish_models(self):
+        """
+        Publish n-best models based on the evaluation test of the selected models. Models will be saved as an
+        onnx-model.
+
+        :return: Returns the published/saved models.
+        """
+
+        model = self.models[0]
+
+        # Save model to mlflow in onnx format
+        # NOTE: Don't put calibrated model in production -> User specific model, not a globally acknowledge model
+        input_sig = [tf.TensorSpec([None, self._config['image_height'], self._config['image_width'], 1], tf.float32)]
+        onnx_model, _ = tf2onnx.convert.from_keras(model, input_sig, opset=13)
+        log_model(onnx_model=onnx_model, artifact_path='model', registered_model_name=self._config['model_name'])
+
+        # Save model to mlflow in tensorflow format using a temporary directory as an intermediate
+        # NOTE: Important for calibration purposes. (assets folder does not get uploaded, as it is empty)
+        with TemporaryDirectory() as tmpdir:
+            tf_save_model(model, tmpdir)
+            log_artifacts(tmpdir, 'tensorflow')
+
+        return self.models

@@ -3,8 +3,8 @@ import time
 from threading import Thread
 
 import numpy as np
-from mlflow import pyfunc as mlflow_pyfunc, search_runs as mlflow_search_runs
-from onnxruntime.capi.onnxruntime_pybind11_state import InvalidArgument
+from mlflow import pyfunc as mlflow_pyfunc, search_runs as mlflow_search_runs, MlflowException
+from onnxruntime.capi.onnxruntime_pybind11_state import InvalidArgument, NoSuchFile
 
 
 class InferenceManager:
@@ -82,7 +82,13 @@ class InferenceManager:
         # If model has been found, load the model from its model run uri and add it to the model cache
         if len(calibrated_model) != 0:
             model_run_id = calibrated_model.iloc[0].loc['run_id']
-            self._models[model_id] = mlflow_pyfunc.load_model(f'runs:/{model_run_id}/model')
+            try:
+                self._models[model_id] = mlflow_pyfunc.load_model(f'runs:/{model_run_id}/model')
+                print('Calibrated model has been loaded.')
+            except MlflowException:     # Occurs when calibrated model is still under development
+                print('Model run exists, but the model does not exist.')
+            except NoSuchFile:          # Occurs when the model has just been uploaded and is still processing
+                print(f'No onnx model found in temporary directory.')
 
         # Mark model retrieval as being finished
         self._calibrated_model_retrieval_list.remove(model_id)

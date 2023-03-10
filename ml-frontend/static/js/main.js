@@ -4,6 +4,8 @@ const VID_WIDTH = 1280, VID_HEIGHT = 720;
 const HIDDEN_CANVAS_WIDTH = 320, HIDDEN_CANVAS_HEIGHT = 180;
 // const HIDDEN_CANVAS_WIDTH = 640, HIDDEN_CANVAS_HEIGHT = 360;
 
+let id_calibrated_model = '', id_in_progress_calibration;
+
 let sock;
 let video_origin, canvas_origin;
 
@@ -111,7 +113,7 @@ const capture = () => {
     canvas_origin.toBlob((blob) => {
         current_frame = blob;
 
-        sock.emit('process-image', blob, (data) => {
+        sock.emit('process-image', {user_id: id_calibrated_model, image_blob: blob}, (data) => {
             let imgData = new Blob([data], {type: 'image/jpg'});
             let img = new Image();
             img.onload = () => preview.getContext('2d').drawImage(img, 0, 0, preview.width, preview.height);
@@ -165,9 +167,10 @@ function trainModel() {
 }
 
 function calibrateModel() {
-    // Get socket id and prepare connection
-    let url = EXPERIMENTATION_SERVER_URL + `/model/calibrate?user_id=${sock.id}`;
-    console.log(`uploading for id: ${sock.id}`);
+    // Get socket id and prepare connection#
+    id_in_progress_calibration = sock.id;
+    let url = EXPERIMENTATION_SERVER_URL + `/model/calibrate?user_id=${id_in_progress_calibration}`;
+    console.log(`uploading for id: ${id_in_progress_calibration}`);
 
     // Get zip file and add it to the form data
     let formData = new FormData();
@@ -181,15 +184,23 @@ function calibrateModel() {
         contentType: false,
         processData: false,
         success: function(result) {
-            console.log('Calibration initiated.');
-            window.alert('A calibration procedure has been started. When the calibration process has finished, it will ' +
-                'automatically be applied to this current session.');
-            btn_model_calibrate.disabled = true;
+            console.log(`Successfully created a calibrated model.`);
+            window.alert('Successfully created a personalised model. ' +
+                'Now using your personalised model for predictions.');
+            id_calibrated_model = id_in_progress_calibration;
+            id_in_progress_calibration = '';
         },
         error: function(error) {
+            // Notify the user of the error and re-enable the calibration button
             console.log(`Error in calibration call: ${error}`);
             window.alert('Could not call for calibration at this time. Please try again later.');
-            btn_model_calibrate.disabled = true;
+            btn_model_calibrate.disabled = false;
         },
     });
+
+    // Notify user of the process and disable the calibration button
+    console.log('Calibration initiated.');
+    window.alert('A calibration procedure has been started. When the calibration process has finished, it will ' +
+        'automatically be applied to this current session. You will be notified when the personalised model is ready.');
+    btn_model_calibrate.disabled = true;
 }

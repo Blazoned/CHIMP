@@ -1,4 +1,5 @@
 from os import path, getcwd, makedirs
+from shutil import rmtree as remove_directory
 from threading import Thread
 from zipfile import ZipFile
 import json
@@ -97,7 +98,15 @@ def _calibrate_model():
         zipfile.extractall(folder_path)
 
     # Call calibration upon folder with the given user id
-    # TODO: CALL CALIBRATION WITH FOLDER
+    with open(path.join(getcwd(), 'config.json'), 'r') as f:
+        config = json.load(f)
+        config['data_directory'] = folder_path
+
+        pipeline = build_emotion_recognition_pipeline(config=config, do_calibrate_base_model=True)
+        pipeline.run(run_name=request.args.get('user_id', '', str))
+
+    # Remove data folder
+    remove_directory(config['data_directory'], ignore_errors=True)
 
     return jsonify(success=True)
 # endregion

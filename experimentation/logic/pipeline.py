@@ -109,8 +109,9 @@ class MLFlowPipeline(BasicPipeline):
         set_tracking_uri(self._mlflow_config['tracking_uri'])
         set_experiment(self._config['experiment_name'])
 
-    def run(self, data_in: Union[pd.DataFrame, Any] = None):
-        run_name = f"v{self._mlflow_config['base_model_version']}.{self._mlflow_config['sub_model_version']}.0"
+    def run(self, data_in: Union[pd.DataFrame, Any] = None, run_name: str = ''):
+        if run_name == '':
+            run_name = f"v{self._mlflow_config['base_model_version']}.{self._mlflow_config['sub_model_version']}.0"
 
         with start_run(run_name=run_name) as run:
             published_models = super(MLFlowPipeline, self).run(data_in)

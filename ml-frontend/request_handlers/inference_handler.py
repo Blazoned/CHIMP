@@ -26,10 +26,13 @@ def _on_disconnect():
         del _image_processors[request.sid]
 
 
-def _process_image(image_blob):
-    img_processor = _image_processors.get(request.sid, ImageProcessor(INFERENCE_INTERVAL))
+def _process_image(data):
+    user_id = data['user_id'] if data['user_id'] != '' else request.sid
+    image_blob = data['image_blob']
+
+    img_processor = _image_processors.get(user_id, ImageProcessor(INFERENCE_INTERVAL))
     img_processor.load_image(image_blob)
-    img_processor.process(request.sid)
+    img_processor.process(user_id)
 
     emit('update-data', img_processor.predictions)
 
