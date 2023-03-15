@@ -1,6 +1,6 @@
 from logic.inference import InferenceManager
 
-from flask import Response, request, abort, jsonify
+from flask import request, abort, jsonify
 
 _inference_manager = InferenceManager()
 
@@ -19,7 +19,8 @@ def _infer_from_model():
             predictions = _inference_manager.infer_from_global_model(request.json, stage)
             return jsonify(predictions=predictions)
         else:
-            return abort(501)
+            predictions = _inference_manager.infer_from_calibrated_model(id, request.json)
+            return jsonify(predictions=predictions)
     except TypeError:
         return abort(400, "The data in the 'inputs' field of the json request is formatted incorrectly.")
 

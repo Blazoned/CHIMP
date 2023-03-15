@@ -138,3 +138,39 @@ hr {
 .data-index {
     font-size: 1rem;
 }
+
+.model-update {
+    display: block;
+    padding: 0 13px 0 13px;
+}
+
+.model-update-button {
+    display: inline-block;
+    margin: 2px 0;
+    padding: 7px;
+    border: 2px solid hsla(352,89%,23%,67%);
+    border-radius: 3px;
+    background-color: hsl(0,0%,97%);
+    color: hsl(352,83%,49%);
+    font-size: .95rem;
+    font-weight: bold;
+}
+
+.model-update-button:hover {
+    background-color: hsl(0,0%,93.5%);
+}
+
+.model-update-button:active {
+    background-color: hsl(0,0%,89%);
+}
+
+.model-update-button:disabled {
+    background-color: hsl(0,0%,93%);
+    color: hsl(352,0%,77%);
+    border-color: hsla(352,0%,23%,67%);
+}
+
+.model-update-input {
+    margin-left: 8px;
+    width: 200px;
+}

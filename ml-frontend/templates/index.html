@@ -16,7 +16,9 @@
     <div class="container">
 		<div class="header">
 			<image class="header-logo" src="/static/images/Logo-ZUYD-Data-Intelligence.svg"></image>
-			<strike>Minor AI:</strike> Emotion Detection using CHIMP
+			<span title="Original credit to Dwayne Debets, Roald Janssen, Bryan Kroon and Gavin Melis for creating emotion recognition model and the frontend upon which CHIMP is build to demonstrate its functionalities.">
+				Emotion Detection using CHIMP
+			</span>
 		</div>
 		<div class="banner"></div>
 		<div class="camera">
@@ -63,9 +65,17 @@
 					</tr>
 				</table>
 			</div>
+			<div class="model-update">
+				<button id="btn_model_calibrate" class="model-update-button" onclick="calibrateModel()">Calibrate Current Model</button>
+				<input id="input_data_upload" class="model-update-input" type="file" name="zipfile" accept="application/zip" />
+				<br />
+				<button id="btn_model_training" class="model-update-button" onclick="trainModel()">Train New Model</button>
+			</div>
 		</div>
 		<div class="footer">
-			<div class="footer-by">By Dwayne Debets, Roald Janssen, Bryan Kroon and Gavin Melis</div>
+			<!-- Original credit to Dwayne Debets, Roald Janssen, Bryan Kroon and Gavin Melis for creating emotion
+			 		recognition model and the frontend upon which CHIMP is build to demonstrate its functionalities. -->
+			<div class="footer-by">By Bryan Kroon</div>
 			<div class="footer-owner">Lectoraat Data Intellligence Zuyd™</div>
 		</div>
     </div>
