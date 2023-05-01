@@ -16,7 +16,7 @@ from numpy.random import RandomState
 from talos import Scan
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D
-from tensorflow.keras.layers import BatchNormalization, Activation, MaxPooling2D
+from tensorflow.keras.layers import BatchNormalization, Activation, MaxPooling2D, SpatialDropout2D
 from tensorflow.keras.models import model_from_json, load_model as load_keras_model
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam, SGD

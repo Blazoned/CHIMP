@@ -8,6 +8,7 @@ pipeline components:
 # region Imports
 from __future__ import annotations
 from typing import Type, Union, Any
+from os import environ
 
 from logic.data import DataProcessorABC
 from logic.model import ModelGeneratorABC
@@ -104,9 +105,12 @@ class MLFlowPipeline(BasicPipeline):
 
         # Set MLFlow config
         self._mlflow_config = self._config['mlflow_config']
+        self._mlflow_config['model_name'] = environ.get('MODEL_NAME', self._config['model_name']) \
+                                            if environ.get('MODEL_NAME', '') != '' \
+                                            else self._config['model_name']
         self._mlflow_config['sub_model_version'] = 0
 
-        set_tracking_uri(self._mlflow_config['tracking_uri'])
+        set_tracking_uri(environ['MLFLOW_TRACKING_URI'])
         set_experiment(self._config['experiment_name'])
 
     def run(self, data_in: Union[pd.DataFrame, Any] = None, run_name: str = ''):

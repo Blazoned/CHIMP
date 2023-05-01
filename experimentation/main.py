@@ -23,6 +23,11 @@ def index():
     return abort(418)
 
 
+def get_app():
+    load_dotenv()
+    return app
+
+
 def main():
     # TODO: Add a security token?
     # Currently functioning as a webapi to build models, or to update existing models upon request. Endpoint variables

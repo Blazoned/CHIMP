@@ -187,7 +187,7 @@ class MLFlowEmotionModelPublisher(EmotionModelPublisher):
                 # Record metrics
                 log_metric('duration', model_info['duration'])
                 log_metric('loss', model_entry['loss'])
-                log_metric('accuracy', model_entry['accuracy'])
+                log_metric('test_accuracy', model_entry['accuracy'])
                 log_metric('f1_score', model_entry['f1_score'])
 
                 #   Transform model to onnx and record model
