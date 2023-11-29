@@ -14,9 +14,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True
 
-# Add dependencies required for opencv (ffmpeg, libsm6, libxext6), mlflow (git) and tensorflow (cuda's cudnn)
+# Add dependencies required for healthcheck, opencv (ffmpeg, libsm6, libxext6), mlflow (git) and tensorflow (cuda's cudnn)
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
-RUN apt-get update && apt-get upgrade -y && apt-get install -y -q git ffmpeg libsm6 libxext6
+RUN apt-get update && apt-get upgrade -y && apt-get install -y -q wget git ffmpeg libsm6 libxext6
 
 # Copy project to container, then install requirements
 ADD . $CONTAINER_HOME

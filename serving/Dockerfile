@@ -2,7 +2,7 @@ FROM python:3.10.11-slim
 
 LABEL authors="Blazoned"
 LABEL owners="Lectorship Data Intelligence Zuyd, Bryan Kroon"
-LABEL nl.blazoned.emotionrecognition.service="serving"
+LABEL nl.blazoned.emotionrecognition.service="serving server"
 
 # Set environment variables:
 # - Base directory,
@@ -12,9 +12,9 @@ ENV CONTAINER_HOME=/usr/src/app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Add dependencies required for onnxruntime
+# Add dependencies required for onnxruntime and healthcheck
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
-RUN apt-get update && apt-get upgrade -y && apt-get install -y -q protobuf-compiler
+RUN apt-get update && apt-get upgrade -y && apt-get install -y -q wget protobuf-compiler
 
 # Copy project to container, then install requirements
 ADD . $CONTAINER_HOME

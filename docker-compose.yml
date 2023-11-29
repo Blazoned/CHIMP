@@ -2,11 +2,11 @@ version: "3.9"
 
 services:
     # application
-    # : sandbox application that enable emotion recognition from facial features
+    # : sandbox application that enables emotion recognition from facial features
     application-frontend:
         restart: unless-stopped
         build: ./ml-frontend
-        image: chimp-frontend-app:latest
+        image: chimp-frontend-app:demonstrator-v1.0.0
         container_name: frontend-app
         networks:
             - public-network
@@ -14,147 +14,105 @@ services:
         ports:
             - "5252:8000"
         environment:
+            - UID=1000
+            - GID=1000
             - MODEL_INFERENCE_URL=${MODEL_INFERENCE_URL}
-        entrypoint: ["gunicorn", "--worker-class=geventwebsocket.gunicorn.workers.GeventWebSocketWorker", "--bind=0.0.0.0:8000", "--workers=1", "--threads=8", "main:get_app()"]
         volumes:
             - ./docker-data/webapp/html:/usr/src/app/templates
             - ./docker-data/webapp/images:/usr/src/app/static/images
             - ./docker-data/webapp/css:/usr/src/app/static/css
             - ./docker-data/webapp/js:/usr/src/app/static/js
+        entrypoint: ["gunicorn", "--worker-class=geventwebsocket.gunicorn.workers.GeventWebSocketWorker", "--bind=0.0.0.0:8000", "--workers=1", "--threads=8", "main:get_app()"]
         depends_on:
-            - artifact-store
+            - monitoring-server
 
     # experimentation
     # : trains and calibrates models while being publicly available for training calls
     experimentation-server:
         restart: unless-stopped
-        build: ./experimentation
-        image: chimp-experimentation:latest
+        build: 
+            context: ./experimentation
+            dockerfile: Dockerfile
+        image: chimp-experimentation:demonstrator-v1.0.0
         container_name: experimentation-server
+        healthcheck:
+            test: ["CMD-SHELL", "wget -nv -t1 --spider 'http://localhost:8000/health' || exit 1"]
+            start_period: 15s
+            interval: 30s
+            retries: 5
+            timeout: 15s
         networks:
             - public-network
         ports:
             - "5253:8000"
         environment:
+            - UID=1000
+            - GID=1000
             - MODEL_NAME=${MODEL_NAME}
             - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}
-            - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL}
-            - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
-            - AWS_BUCKET_NAME=${AWS_BUCKET_NAME}
-        entrypoint: ["gunicorn", "--worker-class=gunicorn.workers.ggevent.GeventWorker", "--bind=0.0.0.0:8000", "--workers=8", "--threads=128", "--timeout=0", "main:get_app()"]
         volumes:
             - ./docker-data/experimentation/config.json:/usr/src/app/config.json
             - ./docker-data/experimentation/data:/usr/src/app/data
+        entrypoint: ["gunicorn", "--worker-class=gunicorn.workers.ggevent.GeventWorker", "--bind=0.0.0.0:8000", "--workers=8", "--threads=128", "--timeout=0", "main:get_app()"]
         depends_on:
-            - artifact-store
+            - monitoring-server
 
     # serving
-    # : serves models via the backend to the frontend application
+    # : serves models from the artifact store to the frontend application
     serving-server:
         restart: unless-stopped
-        build: ./serving
-        image: chimp-serving:latest
+        build:
+            context: ./serving
+            dockerfile: Dockerfile
+        image: chimp-serving:demonstrator-v1.0.0
         container_name: serving-server
+        healthcheck:
+            test: ["CMD-SHELL", "wget -nv -t1 --spider 'http://localhost:8000/health' || exit 1"]
+            start_period: 15s
+            interval: 30s
+            retries: 5
+            timeout: 15s
         networks:
             - serving-backend
         expose:
             - "8000"
         environment:
+            - UID=1000
+            - GID=1000
             - MODEL_NAME=${MODEL_NAME}
             - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}
-            - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL}
-            - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-        entrypoint: ["gunicorn", "--worker-class=gunicorn.workers.ggevent.GeventWorker", "--bind=0.0.0.0:8000", "--workers=8", "--threads=4", "main:get_app()"]#
+        entrypoint: ["gunicorn", "--worker-class=gunicorn.workers.ggevent.GeventWorker", "--bind=0.0.0.0:8000", "--workers=8", "--threads=4", "main:get_app()"]
         depends_on:
-            - artifact-store
+            - monitoring-server
 
     # monitoring
-    # : runs mlflow tracking server with a web-interface
+    # : runs mlflow tracking server with a web-interface, makes use of sqlite database (rdbms/data store) and local files (artifact-/object store) for ease of deployment with persistent storage
     monitoring-server:
         restart: unless-stopped
-        build: ./mlflow-containerised/mlflow
-        image: chimp-mlflow:latest
-        container_name: mlflow-tracking
+        build:
+            context: ./mlflow-tracking
+            dockerfile: Dockerfile
+        image: chimp-mlflow:demonstrator-v1.0.0
+        container_name: mlflow-tracking-server
+        healthcheck:
+            test: ["CMD-SHELL", "wget -nv -t1 --spider 'http://localhost:5000/health' || exit 1"]
+            start_period: 30s
+            interval: 1m30s
+            retries: 5
+            timeout: 30s
         networks:
             - public-network
-            - monitoring-backend
         ports:
             - "8999:5000"
         environment:
-            - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL}
-            - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-            - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-            - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
-        command: mlflow server --backend-store-uri mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@database:3306/${MYSQL_DATABASE} --default-artifact-root s3://${AWS_BUCKET_NAME}/ --artifacts-destination s3://${AWS_BUCKET_NAME}/ --host 0.0.0.0
-        depends_on:
-            - database
-            - artifact-store
-
-    # data store
-    # : stores model meta-data for mlflow using an rdbms
-    database:
-        restart: unless-stopped
-        image: mysql/mysql-server:8.0.31
-        container_name: mysql-database
-        networks:
-            - monitoring-backend
-        expose:
-            - "3306"
-        environment:
-            - MYSQL_DATABASE=${MYSQL_DATABASE}
-            - MYSQL_USER=${MYSQL_USER}
-            - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-            - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+            - UID=1000
+            - GID=1000
         volumes:
-            - mysql_data:/var/lib/mysql
-
-    # artifact store
-    # : stores model artifacts (objects and files) for mlflow using s3 buckets
-    artifact-store:
-        restart: unless-stopped
-        image: minio/minio:RELEASE.2022-10-29T06-21-33Z
-        container_name: minio-object-store
-        networks:
-            - public-network
-            - monitoring-backend
-        ports:
-            - "9000:9000"
-            - "9001:9001"
-        environment:
-            - MINIO_ROOT_USER=${AWS_ACCESS_KEY_ID}
-            - MINIO_ROOT_PASSWORD=${AWS_SECRET_ACCESS_KEY}
-        command: server /data --console-address ":9001"
-        volumes:
-            - minio_data:/data
-
-    # : initialises minio via a client
-    artifact-store-initializer:
-        restart: "no"
-        image: minio/mc:RELEASE.2022-10-29T10-09-23Z
-        networks:
-            - monitoring-backend
-        entrypoint: >
-            /bin/sh -c "
-            until (/usr/bin/mc alias set minio ${MLFLOW_S3_ENDPOINT_URL} '${AWS_ACCESS_KEY_ID}' '${AWS_SECRET_ACCESS_KEY}') do echo '...waiting...' && sleep 1; done;
-            /usr/bin/mc mb minio/${AWS_BUCKET_NAME};
-            exit 0;
-            "
-        depends_on:
-            - artifact-store
+            - ./docker-data/monitoring:/data
+        command: mlflow server --backend-store-uri sqlite:////data/mlflow.db --default-artifact-root /data/mlruns --host 0.0.0.0
 
 networks:
     public-network:
-        name: 'chimp-public-bridge'
+        name: 'chimp-public-network'
     serving-backend:
-        name: 'chimp-serving-backend'
-    monitoring-backend:
-        name: 'chimp-mlflow-backend'
-
-volumes:
-    mysql_data:
-        name: 'chimp-mysql-data'
-    minio_data:
-        name: 'chimp-minio-data'
+        name: 'chimp-serving-backend-network'
