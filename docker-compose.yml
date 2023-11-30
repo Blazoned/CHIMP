@@ -10,7 +10,7 @@ services:
         container_name: frontend-app
         networks:
             - public-network
-            - serving-backend
+            - backend-network
         ports:
             - "5252:8000"
         environment:
@@ -73,7 +73,7 @@ services:
             retries: 5
             timeout: 15s
         networks:
-            - serving-backend
+            - backend-network
         expose:
             - "8000"
         environment:
@@ -102,6 +102,7 @@ services:
             timeout: 30s
         networks:
             - public-network
+            - backend-network
         ports:
             - "8999:5000"
         environment:
@@ -109,10 +110,10 @@ services:
             - GID=1000
         volumes:
             - ./docker-data/monitoring:/data
-        command: mlflow server --backend-store-uri sqlite:////data/mlflow.db --default-artifact-root /data/mlruns --host 0.0.0.0
+        command: mlflow server --backend-store-uri sqlite:///data/mlflow.db --artifacts-destination /data/mlruns --host 0.0.0.0 --serve-artifacts
 
 networks:
     public-network:
         name: 'chimp-public-network'
-    serving-backend:
-        name: 'chimp-serving-backend-network'
+    backend-network:
+        name: 'chimp-backend-network'

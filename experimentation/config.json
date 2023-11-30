@@ -1,7 +1,7 @@
 {
     "use_mlflow": true,
     "mlflow_config": {
-        "base_model_version": 1
+        "base_model_version": 2
     },
     "random_seed": 69,
     "model_name": "onnx emotion model",

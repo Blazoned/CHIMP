@@ -1,3 +1,7 @@
+# Custom
+docker-data/monitoring/mlruns/
+experimentation/ONNX Emotion Recognition/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
